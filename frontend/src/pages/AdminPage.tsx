@@ -37,6 +37,7 @@ import type {
   BookingRecord,
   MediaAsset,
   MediaKind,
+  PublicContact,
   PackageInput,
   PackageRecord,
   SiteSettings,
@@ -58,7 +59,18 @@ const emptySiteSettings: Omit<SiteSettings, "id"> = {
   maps_embed_url: "",
   contacts_button_label: "",
   contacts_button_url: "",
+  contact_people: [],
 };
+
+function createEmptyContact(): PublicContact {
+  return {
+    id: crypto.randomUUID(),
+    name: "",
+    role: "",
+    phone: "",
+    telegram: "",
+  };
+}
 
 function statusLabel(status: BookingRecord["status"]) {
   if (status === "approved") {
@@ -183,6 +195,7 @@ export function AdminPage() {
       maps_embed_url: settingsData.maps_embed_url ?? "",
       contacts_button_label: settingsData.contacts_button_label ?? "",
       contacts_button_url: settingsData.contacts_button_url ?? "",
+      contact_people: settingsData.contact_people ?? [],
     });
   };
 
@@ -346,6 +359,14 @@ export function AdminPage() {
         maps_embed_url: siteSettings.maps_embed_url?.trim() ?? "",
         contacts_button_label: siteSettings.contacts_button_label?.trim() ?? "",
         contacts_button_url: siteSettings.contacts_button_url?.trim() ?? "",
+        contact_people:
+          siteSettings.contact_people?.map((item) => ({
+            id: item.id,
+            name: item.name.trim(),
+            role: item.role.trim(),
+            phone: item.phone.trim(),
+            telegram: item.telegram.trim(),
+          })) ?? [],
       });
       await refresh();
       setNotice("Sayt sozlamalari saqlandi.");
@@ -468,7 +489,7 @@ export function AdminPage() {
       <div className="mt-6">
         <SectionCard
           title="Sayt sozlamalari"
-          description="Joylashuv havolasi, ixtiyoriy embed xarita va Telegram yonidagi Contacts tugmasini shu yerdan boshqaring."
+          description="Yandex joylashuv havolasi va foydalanuvchilarga ko'rinadigan xodimlar kontaktlarini shu yerdan boshqaring."
         >
           <form className="grid gap-4 lg:grid-cols-2" onSubmit={handleSiteSettingsSubmit}>
             <label className="space-y-2 text-sm text-ink/70">
@@ -517,40 +538,128 @@ export function AdminPage() {
                 className={inputClassName()}
               />
               <p className="text-xs leading-5 text-ink/45">
-                Ixtiyoriy. Agar embed URL bo'sh qolsa, sayt Yandex xaritani ochish tugmasini ko'rsatadi.
+                Hozir public sahifada Yandex xarita havolasi ishlatiladi. Bu maydonni bo'sh qoldirishingiz mumkin.
               </p>
             </label>
 
-            <label className="space-y-2 text-sm text-ink/70">
-              <span>Contacts tugmasi matni</span>
-              <input
-                placeholder="Masalan: Contacts"
-                value={siteSettings.contacts_button_label ?? ""}
-                onChange={(event) =>
-                  setSiteSettings((current) => ({
-                    ...current,
-                    contacts_button_label: event.target.value,
-                  }))
-                }
-                className={inputClassName()}
-              />
-            </label>
+            <div className="lg:col-span-2 space-y-4 rounded-[28px] bg-pearl p-5">
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                <div>
+                  <p className="text-lg font-semibold text-ink">Xodimlar kontaktlari</p>
+                  <p className="mt-1 text-sm leading-6 text-ink/58">
+                    Telefon raqami va Telegram profilini kiritsangiz ular public saytda ko'rinadi.
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() =>
+                    setSiteSettings((current) => ({
+                      ...current,
+                      contact_people: [...(current.contact_people ?? []), createEmptyContact()],
+                    }))
+                  }
+                  className="rounded-full border border-black/10 bg-white px-4 py-2 text-sm font-medium text-ink transition hover:bg-white/80"
+                >
+                  Kontakt qo'shish
+                </button>
+              </div>
 
-            <label className="space-y-2 text-sm text-ink/70">
-              <span>Contacts tugmasi havolasi</span>
-              <input
-                type="url"
-                placeholder="https://..., tel:+998..., mailto:..."
-                value={siteSettings.contacts_button_url ?? ""}
-                onChange={(event) =>
-                  setSiteSettings((current) => ({
-                    ...current,
-                    contacts_button_url: event.target.value,
-                  }))
-                }
-                className={inputClassName()}
-              />
-            </label>
+              <div className="grid gap-4">
+                {(siteSettings.contact_people ?? []).map((contact, index) => (
+                  <div key={contact.id} className="grid gap-4 rounded-[24px] border border-black/8 bg-white/80 p-4 lg:grid-cols-2">
+                    <label className="space-y-2 text-sm text-ink/70">
+                      <span>Ism</span>
+                      <input
+                        value={contact.name}
+                        onChange={(event) =>
+                          setSiteSettings((current) => ({
+                            ...current,
+                            contact_people: (current.contact_people ?? []).map((item) =>
+                              item.id === contact.id ? { ...item, name: event.target.value } : item,
+                            ),
+                          }))
+                        }
+                        className={inputClassName()}
+                      />
+                    </label>
+
+                    <label className="space-y-2 text-sm text-ink/70">
+                      <span>Lavozim</span>
+                      <input
+                        value={contact.role}
+                        onChange={(event) =>
+                          setSiteSettings((current) => ({
+                            ...current,
+                            contact_people: (current.contact_people ?? []).map((item) =>
+                              item.id === contact.id ? { ...item, role: event.target.value } : item,
+                            ),
+                          }))
+                        }
+                        className={inputClassName()}
+                      />
+                    </label>
+
+                    <label className="space-y-2 text-sm text-ink/70">
+                      <span>Telefon</span>
+                      <input
+                        value={contact.phone}
+                        placeholder="+998 90 123 45 67"
+                        onChange={(event) =>
+                          setSiteSettings((current) => ({
+                            ...current,
+                            contact_people: (current.contact_people ?? []).map((item) =>
+                              item.id === contact.id ? { ...item, phone: event.target.value } : item,
+                            ),
+                          }))
+                        }
+                        className={inputClassName()}
+                      />
+                    </label>
+
+                    <label className="space-y-2 text-sm text-ink/70">
+                      <span>Telegram</span>
+                      <input
+                        value={contact.telegram}
+                        placeholder="@username yoki https://t.me/username"
+                        onChange={(event) =>
+                          setSiteSettings((current) => ({
+                            ...current,
+                            contact_people: (current.contact_people ?? []).map((item) =>
+                              item.id === contact.id ? { ...item, telegram: event.target.value } : item,
+                            ),
+                          }))
+                        }
+                        className={inputClassName()}
+                      />
+                    </label>
+
+                    <div className="lg:col-span-2 flex justify-between gap-3">
+                      <p className="text-xs leading-5 text-ink/45">
+                        Kontakt #{index + 1} public saytning aloqa bo'limida ko'rsatiladi.
+                      </p>
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setSiteSettings((current) => ({
+                            ...current,
+                            contact_people: (current.contact_people ?? []).filter((item) => item.id !== contact.id),
+                          }))
+                        }
+                        className="rounded-full border border-red-200 px-4 py-2 text-sm font-medium text-red-700 transition hover:bg-red-50"
+                      >
+                        O'chirish
+                      </button>
+                    </div>
+                  </div>
+                ))}
+
+                {(siteSettings.contact_people ?? []).length === 0 ? (
+                  <div className="rounded-[24px] border border-dashed border-black/10 bg-white/70 p-4 text-sm text-ink/55">
+                    Hozircha xodim kontaktlari qo'shilmagan.
+                  </div>
+                ) : null}
+              </div>
+            </div>
 
             <div className="lg:col-span-2">
               <button

@@ -7,8 +7,8 @@ import InteractiveBentoGallery, {
   type BentoGalleryItem,
 } from "../components/ui/interactive-bento-gallery";
 import { getMediaAssets, getPackages, getSiteSettings } from "../lib/api";
-import type { MediaAsset, PackageRecord, SiteSettings } from "../lib/types";
-import { getTelegramLink, isVideoUrl } from "../lib/utils";
+import type { MediaAsset, PackageRecord, PublicContact, SiteSettings } from "../lib/types";
+import { getPhoneLink, getTelegramLink, getTelegramProfileLink, isVideoUrl } from "../lib/utils";
 
 export function HomePage() {
   const [packages, setPackages] = useState<PackageRecord[]>([]);
@@ -40,9 +40,10 @@ export function HomePage() {
   const mapsEmbedUrl = siteSettings?.maps_embed_url?.trim() ?? "";
   const locationUrl = siteSettings?.location_url?.trim() || "https://yandex.com/maps/-/CHeC5WPL";
   const locationLabel = siteSettings?.location_label?.trim() || "Bizning manzilimiz";
-  const contactsButtonLabel = siteSettings?.contacts_button_label?.trim() ?? "";
-  const contactsButtonUrl = siteSettings?.contacts_button_url?.trim() ?? "";
-  const hasContactsButton = Boolean(contactsButtonLabel && contactsButtonUrl);
+  const contactPeople = siteSettings?.contact_people ?? [];
+  const featuredContacts = contactPeople.filter(
+    (item) => item.name.trim() || item.phone.trim() || item.telegram.trim(),
+  );
   const galleryItems = useMemo<BentoGalleryItem[]>(() => {
     const spans = [
       "sm:col-span-1 sm:row-span-3 md:col-span-1 md:row-span-3",
@@ -123,7 +124,39 @@ export function HomePage() {
         </div>
       </section>
 
-      <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
+        <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
+        <AnimatedSection className="mt-8">
+          <div className="grid gap-4 rounded-[32px] border border-black/5 bg-white/80 p-5 shadow-soft md:grid-cols-3">
+            <div className="rounded-[24px] bg-pearl p-5">
+              <p className="text-xs uppercase tracking-[0.28em] text-ink/40">Yo'nalish</p>
+              <p className="mt-3 text-2xl font-semibold text-ink">Yandex xarita orqali tez toping</p>
+              <a
+                href={locationUrl}
+                target="_blank"
+                rel="noreferrer"
+                className="mt-4 inline-flex items-center gap-2 text-sm font-medium text-pine"
+              >
+                Joylashuvni ochish
+                <ExternalLink size={16} />
+              </a>
+            </div>
+            <div className="rounded-[24px] bg-pearl p-5">
+              <p className="text-xs uppercase tracking-[0.28em] text-ink/40">Bron</p>
+              <p className="mt-3 text-2xl font-semibold text-ink">Paketni tanlang va darhol so'rov yuboring</p>
+              <p className="mt-3 text-sm leading-7 text-ink/62">
+                Paketlar bazadan yuklanadi, narx esa mehmonlar soni va sanaga qarab hisoblanadi.
+              </p>
+            </div>
+            <div className="rounded-[24px] bg-pearl p-5">
+              <p className="text-xs uppercase tracking-[0.28em] text-ink/40">Aloqa</p>
+              <p className="mt-3 text-2xl font-semibold text-ink">Savollar uchun xodimlar bilan bevosita bog'laning</p>
+              <p className="mt-3 text-sm leading-7 text-ink/62">
+                Telefon orqali qo'ng'iroq qiling yoki Telegram profiliga yozing.
+              </p>
+            </div>
+          </div>
+        </AnimatedSection>
+
         <AnimatedSection className="mt-16">
           <div className="grid gap-6 lg:grid-cols-[0.85fr_1.15fr]">
             <div className="rounded-[32px] border border-black/5 bg-white p-8 shadow-soft">
@@ -201,7 +234,7 @@ export function HomePage() {
           ) : (
             <div className="rounded-[32px] border border-black/5 bg-white p-8 shadow-soft">
               <p className="text-sm leading-7 text-ink/60">
-                Hozircha galereya media fayllari qo'shilmagan. Admin panel orqali surat yoki video yuklang.
+                Galereya hozircha tayyorlanmoqda. Yaqinda hudud suratlari shu yerda ko'rinadi.
               </p>
             </div>
           )}
@@ -214,46 +247,33 @@ export function HomePage() {
                 <p className="text-xs uppercase tracking-[0.3em] text-ink/35">Joylashuv</p>
                 <h2 className="mt-3 text-3xl font-semibold tracking-tight">Maskan manzili</h2>
               </div>
-              {mapsEmbedUrl ? (
-                <div className="h-[420px]">
-                  <iframe
-                    title="Ravotsoy Dam olish Maskani xaritasi"
-                    src={mapsEmbedUrl}
-                    className="h-full w-full border-0"
-                    loading="lazy"
-                    referrerPolicy="no-referrer-when-downgrade"
-                  />
-                </div>
-              ) : (
-                <div className="flex h-[420px] items-center justify-center bg-[radial-gradient(circle_at_top,#ebf4ef_0%,#f6f3ec_55%,#ffffff_100%)] p-8">
-                  <div className="max-w-md rounded-[28px] border border-black/6 bg-white/88 p-8 text-center shadow-soft backdrop-blur">
-                    <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-full bg-pearl text-pine">
-                      <MapPinned size={24} />
-                    </div>
-                    <h3 className="mt-5 text-2xl font-semibold tracking-tight text-ink">{locationLabel}</h3>
-                    <p className="mt-3 text-sm leading-7 text-ink/62">
-                      Bizning aniq joylashuvimizni Yandex xaritada ochib ko'rishingiz mumkin.
-                    </p>
-                    <a
-                      href={locationUrl}
-                      target="_blank"
-                      rel="noreferrer"
-                      className="mt-6 inline-flex items-center justify-center gap-2 rounded-full bg-ink px-5 py-3 text-sm font-medium text-white transition hover:bg-pine"
-                    >
-                      Xaritani ochish
-                      <ExternalLink size={16} />
-                    </a>
+              <div className="flex h-[420px] items-center justify-center bg-[radial-gradient(circle_at_top,#ebf4ef_0%,#f6f3ec_55%,#ffffff_100%)] p-8">
+                <div className="max-w-md rounded-[28px] border border-black/6 bg-white/88 p-8 text-center shadow-soft backdrop-blur">
+                  <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-full bg-pearl text-pine">
+                    <MapPinned size={24} />
                   </div>
+                  <h3 className="mt-5 text-2xl font-semibold tracking-tight text-ink">{locationLabel}</h3>
+                  <p className="mt-3 text-sm leading-7 text-ink/62">
+                    Maskan joylashuvini Yandex xarita orqali oching va yo'lni qulay toping.
+                  </p>
+                  <a
+                    href={locationUrl}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="mt-6 inline-flex items-center justify-center gap-2 rounded-full bg-ink px-5 py-3 text-sm font-medium text-white transition hover:bg-pine"
+                  >
+                    Yandex xaritada ochish
+                    <ExternalLink size={16} />
+                  </a>
                 </div>
-              )}
+              </div>
             </div>
 
             <div className="rounded-[32px] border border-black/5 bg-white p-8 shadow-soft">
               <p className="text-xs uppercase tracking-[0.3em] text-ink/35">Aloqa</p>
               <h2 className="mt-3 text-3xl font-semibold tracking-tight">Biz bilan bog'laning</h2>
               <p className="mt-4 text-sm leading-8 text-ink/65">
-                Bron, bo'sh joylar, narxlar va qo'shimcha ma'lumot uchun Telegram orqali
-                to'g'ridan-to'g'ri yozishingiz mumkin.
+                Bron, bo'sh joylar va qo'shimcha ma'lumot uchun xodimlarimiz bilan to'g'ridan-to'g'ri gaplashing.
               </p>
 
               <div className="mt-8 rounded-[28px] bg-pearl p-5">
@@ -280,18 +300,49 @@ export function HomePage() {
                   <MessageCircleMore size={18} />
                   Telegram orqali bog'lanish
                 </a>
-                {hasContactsButton ? (
-                  <a
-                    href={contactsButtonUrl}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="inline-flex w-full items-center justify-center gap-2 rounded-full border border-black/10 bg-white px-5 py-4 text-sm font-medium text-ink transition hover:bg-pearl"
-                  >
-                    <Phone size={18} />
-                    {contactsButtonLabel}
-                  </a>
-                ) : null}
               </div>
+
+              {featuredContacts.length > 0 ? (
+                <div className="mt-6 grid gap-4">
+                  {featuredContacts.map((contact) => {
+                    const phoneLink = getPhoneLink(contact.phone);
+                    const telegramProfile = getTelegramProfileLink(contact.telegram);
+
+                    return (
+                      <div key={contact.id} className="rounded-[24px] border border-black/6 bg-pearl/60 p-5">
+                        <p className="text-lg font-semibold text-ink">{contact.name || "Xodim"}</p>
+                        {contact.role ? <p className="mt-1 text-sm text-ink/55">{contact.role}</p> : null}
+                        <div className="mt-4 flex flex-col gap-3 sm:flex-row">
+                          {contact.phone ? (
+                            <a
+                              href={phoneLink}
+                              className="inline-flex items-center justify-center gap-2 rounded-full bg-white px-4 py-3 text-sm font-medium text-ink transition hover:bg-white/80"
+                            >
+                              <Phone size={16} />
+                              {contact.phone}
+                            </a>
+                          ) : null}
+                          {contact.telegram ? (
+                            <a
+                              href={telegramProfile}
+                              target="_blank"
+                              rel="noreferrer"
+                              className="inline-flex items-center justify-center gap-2 rounded-full border border-black/10 bg-white px-4 py-3 text-sm font-medium text-ink transition hover:bg-white/80"
+                            >
+                              <MessageCircleMore size={16} />
+                              Telegram profil
+                            </a>
+                          ) : null}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              ) : (
+                <div className="mt-6 rounded-[24px] border border-dashed border-black/10 bg-pearl/50 p-5 text-sm leading-7 text-ink/58">
+                  Aloqa ma'lumotlari yaqin orada yangilanadi. Hozircha umumiy Telegram havolasi orqali yozishingiz mumkin.
+                </div>
+              )}
             </div>
           </div>
         </AnimatedSection>

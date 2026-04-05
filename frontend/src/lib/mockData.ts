@@ -94,4 +94,5 @@ export const mockSiteSettings: SiteSettings = {
   maps_embed_url: "",
   contacts_button_label: "",
   contacts_button_url: "",
+  contact_people: [],
 };

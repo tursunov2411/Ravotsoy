@@ -93,6 +93,7 @@ Tartib bilan quyidagilarni ishlating:
 3. `backend/supabase/migrations/3_create_booking_telegram_webhook.sql`
 4. `backend/supabase/migrations/4_create_package_images_bucket.sql`
 5. `backend/supabase/migrations/20260405_reconcile_live_schema.sql`
+6. `backend/supabase/migrations/20260405_add_contact_people_to_site_settings.sql`
 
 Oxirgi fayl mavjud projectlarda eski policy va legacy jadval driftlarini tozalaydi.
 

@@ -6,6 +6,7 @@ import type {
   BookingStatus,
   MediaAsset,
   MediaKind,
+  PublicContact,
   PackageInput,
   PackageRecord,
   SiteSettings,
@@ -21,6 +22,34 @@ function ensureSupabase() {
 
 const packageImagesBucket = "package-images";
 const defaultMediaBucket = "media";
+
+function parseContactPeople(value: unknown): PublicContact[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  return value
+    .map((item) => {
+      const record = item as Record<string, unknown>;
+      const name = String(record.name ?? "").trim();
+      const role = String(record.role ?? "").trim();
+      const phone = String(record.phone ?? "").trim();
+      const telegram = String(record.telegram ?? "").trim();
+
+      if (!name && !role && !phone && !telegram) {
+        return null;
+      }
+
+      return {
+        id: String(record.id ?? crypto.randomUUID()),
+        name,
+        role,
+        phone,
+        telegram,
+      } satisfies PublicContact;
+    })
+    .filter((item): item is PublicContact => Boolean(item));
+}
 
 export async function getPackages() {
   if (!hasSupabaseConfig) {
@@ -138,7 +167,9 @@ export async function getSiteSettings() {
   const client = ensureSupabase();
   const { data, error } = await client
     .from("site_settings")
-    .select("id, location_label, location_url, maps_embed_url, contacts_button_label, contacts_button_url")
+    .select(
+      "id, location_label, location_url, maps_embed_url, contacts_button_label, contacts_button_url, contact_people",
+    )
     .eq("id", 1)
     .maybeSingle();
 
@@ -157,6 +188,7 @@ export async function getSiteSettings() {
     maps_embed_url: data.maps_embed_url ? String(data.maps_embed_url) : "",
     contacts_button_label: data.contacts_button_label ? String(data.contacts_button_label) : "",
     contacts_button_url: data.contacts_button_url ? String(data.contacts_button_url) : "",
+    contact_people: parseContactPeople(data.contact_people),
   } satisfies SiteSettings;
 }
 
@@ -179,10 +211,13 @@ export async function upsertSiteSettings(payload: Omit<SiteSettings, "id">) {
         maps_embed_url: payload.maps_embed_url || null,
         contacts_button_label: payload.contacts_button_label || null,
         contacts_button_url: payload.contacts_button_url || null,
+        contact_people: payload.contact_people ?? [],
       },
       { onConflict: "id" },
     )
-    .select("id, location_label, location_url, maps_embed_url, contacts_button_label, contacts_button_url")
+    .select(
+      "id, location_label, location_url, maps_embed_url, contacts_button_label, contacts_button_url, contact_people",
+    )
     .single();
 
   if (error) {
@@ -196,6 +231,7 @@ export async function upsertSiteSettings(payload: Omit<SiteSettings, "id">) {
     maps_embed_url: data.maps_embed_url ? String(data.maps_embed_url) : "",
     contacts_button_label: data.contacts_button_label ? String(data.contacts_button_label) : "",
     contacts_button_url: data.contacts_button_url ? String(data.contacts_button_url) : "",
+    contact_people: parseContactPeople(data.contact_people),
   } satisfies SiteSettings;
 }
 

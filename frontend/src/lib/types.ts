@@ -39,6 +39,14 @@ export type MediaAsset = {
 
 export type PackageInput = Omit<PackageRecord, "id" | "images">;
 
+export type PublicContact = {
+  id: string;
+  name: string;
+  role: string;
+  phone: string;
+  telegram: string;
+};
+
 export type SiteSettings = {
   id: number;
   location_label: string;
@@ -46,4 +54,5 @@ export type SiteSettings = {
   maps_embed_url?: string | null;
   contacts_button_label?: string | null;
   contacts_button_url?: string | null;
+  contact_people?: PublicContact[];
 };

@@ -3,7 +3,8 @@ import { Menu, MessageCircleMore, Phone, X } from "lucide-react";
 import { useEffect, useState } from "react";
 import { NavLink, Outlet } from "react-router-dom";
 import { getSiteSettings } from "../lib/api";
-import { getTelegramLink } from "../lib/utils";
+import type { PublicContact } from "../lib/types";
+import { getPhoneLink, getTelegramLink } from "../lib/utils";
 
 const navigation = [
   { to: "/", label: "Bosh sahifa" },
@@ -19,21 +20,16 @@ function navClass(isActive: boolean) {
 
 export function Layout() {
   const [open, setOpen] = useState(false);
-  const [contactsButton, setContactsButton] = useState({
-    label: "",
-    url: "",
-  });
+  const [contacts, setContacts] = useState<PublicContact[]>([]);
   const telegramLink = getTelegramLink("Salom, Ravotsoy Dam olish Maskani haqida ma'lumot olmoqchiman.");
-  const hasContactsButton = Boolean(contactsButton.label && contactsButton.url);
+  const primaryContact = contacts.find((item) => item.phone.trim()) ?? null;
+  const primaryPhoneLink = primaryContact ? getPhoneLink(primaryContact.phone) : "";
 
   useEffect(() => {
     const loadSettings = async () => {
       try {
         const settings = await getSiteSettings();
-        setContactsButton({
-          label: settings.contacts_button_label?.trim() ?? "",
-          url: settings.contacts_button_url?.trim() ?? "",
-        });
+        setContacts(settings.contact_people ?? []);
       } catch (error) {
         console.error(error);
       }
@@ -74,15 +70,13 @@ export function Layout() {
               <MessageCircleMore size={16} />
               Telegram
             </a>
-            {hasContactsButton ? (
+            {primaryContact && primaryPhoneLink ? (
               <a
-                href={contactsButton.url}
-                target="_blank"
-                rel="noreferrer"
+                href={primaryPhoneLink}
                 className="inline-flex items-center gap-2 rounded-full border border-black/8 bg-white/80 px-4 py-2 text-sm font-medium text-ink transition hover:bg-white"
               >
                 <Phone size={16} />
-                {contactsButton.label}
+                {primaryContact.phone}
               </a>
             ) : null}
             <Button to="/bron" className="px-5 py-2.5">
@@ -123,16 +117,14 @@ export function Layout() {
                 <MessageCircleMore size={16} />
                 Telegram orqali bog'lanish
               </a>
-              {hasContactsButton ? (
+              {primaryContact && primaryPhoneLink ? (
                 <a
-                  href={contactsButton.url}
-                  target="_blank"
-                  rel="noreferrer"
+                  href={primaryPhoneLink}
                   className="inline-flex items-center justify-center gap-2 rounded-full border border-black/10 px-4 py-3 text-sm font-medium text-ink"
                   onClick={() => setOpen(false)}
                 >
                   <Phone size={16} />
-                  {contactsButton.label}
+                  {primaryContact.phone}
                 </a>
               ) : null}
             </div>
@@ -162,15 +154,13 @@ export function Layout() {
               <MessageCircleMore size={16} />
               Telegram
             </a>
-            {hasContactsButton ? (
+            {primaryContact && primaryPhoneLink ? (
               <a
-                href={contactsButton.url}
-                target="_blank"
-                rel="noreferrer"
+                href={primaryPhoneLink}
                 className="inline-flex items-center justify-center gap-2 rounded-full border border-black/10 px-5 py-3 text-sm font-medium text-ink transition hover:bg-white"
               >
                 <Phone size={16} />
-                {contactsButton.label}
+                {primaryContact.phone}
               </a>
             ) : null}
             <Button to="/bron" variant="secondary" className="w-full sm:w-auto">

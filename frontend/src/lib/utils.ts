@@ -32,6 +32,26 @@ export function getTelegramLink(message: string) {
   return `https://t.me/share/url?url=${encodeURIComponent(window.location.origin)}&text=${encodeURIComponent(message)}`;
 }
 
+export function getTelegramProfileLink(value: string) {
+  const trimmed = value.trim();
+
+  if (!trimmed) {
+    return "";
+  }
+
+  const normalized = trimmed
+    .replace(/^https?:\/\/t\.me\//i, "")
+    .replace(/^@/, "")
+    .replace(/\/+$/, "");
+
+  return normalized ? `https://t.me/${normalized}` : "";
+}
+
+export function getPhoneLink(phone: string) {
+  const normalized = phone.trim().replace(/[^\d+]/g, "");
+  return normalized ? `tel:${normalized}` : "";
+}
+
 export function todayIso() {
   const date = new Date();
   const year = date.getFullYear();
