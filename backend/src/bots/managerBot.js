@@ -1,14 +1,22 @@
 import { createTelegramClient, formatAxiosError, readOptionalEnv } from "./shared.js";
 import { approveBookingProof, fetchBookingContext, loadLatestProofAsset, rejectBookingProof } from "../services/proofService.js";
 import {
+  addReportRecipient,
+  buildDailyReportMessage,
   createResource,
+  exportBookingHistoryCsv,
   formatAnalyticsForTelegram,
   formatAvailabilityForTelegram,
+  formatReportRecipientsForTelegram,
+  getDailyReportRecipients,
   getBusinessAnalytics,
   getResourceOverview,
   getSystemStatus,
+  linkReportRecipientFromTelegram,
   listBookingsForManager,
   listPricingRules,
+  listReportRecipients,
+  removeReportRecipient,
   updatePricingRuleValues,
   updateResourceDetails,
 } from "../services/businessOps.js";
@@ -20,12 +28,12 @@ import {
 } from "../services/managerNotifications.js";
 
 const BUTTONS = {
-  bookings: "View bookings",
-  resources: "Manage resources",
-  pricing: "Manage pricing",
-  analytics: "Analytics",
-  report: "Daily report",
-  status: "System status",
+  bookings: "📚 Bronlar",
+  resources: "🏡 Resurslar",
+  pricing: "💵 Narxlar",
+  analytics: "📊 Analitika",
+  report: "🗂 Hisobotlar",
+  status: "🛠 Tizim holati",
 };
 
 const ACTIONS = {
@@ -50,17 +58,19 @@ const ACTIONS = {
   pricingIncludedDown: "mpr_id_",
   pricingDiscountUp: "mpr_du_",
   pricingDiscountDown: "mpr_dd_",
+  report: "mrep_",
+  reportRecipientDelete: "mrep_del_",
   main: "mmain_",
   resourceCreate: "mres_new_",
   backMain: "mback_main",
 };
 
 const RESOURCE_TEMPLATES = [
-  { type: "room_small", shortLabel: "Room S +", capacity: 2, namePrefix: "Small room" },
-  { type: "room_big", shortLabel: "Room B +", capacity: 4, namePrefix: "Big room" },
-  { type: "tapchan_small", shortLabel: "Tapchan S +", capacity: 4, namePrefix: "Small tapchan" },
-  { type: "tapchan_big", shortLabel: "Tapchan B +", capacity: 6, namePrefix: "Big tapchan" },
-  { type: "tapchan_very_big", shortLabel: "Tapchan XL +", capacity: 8, namePrefix: "VIP tapchan" },
+  { type: "room_small", shortLabel: "➕ Kichik xona", capacity: 2, namePrefix: "Kichik xona" },
+  { type: "room_big", shortLabel: "➕ Katta xona", capacity: 4, namePrefix: "Katta xona" },
+  { type: "tapchan_small", shortLabel: "➕ Kichik tapchan", capacity: 4, namePrefix: "Kichik tapchan" },
+  { type: "tapchan_big", shortLabel: "➕ Katta tapchan", capacity: 6, namePrefix: "Katta tapchan" },
+  { type: "tapchan_very_big", shortLabel: "➕ VIP tapchan", capacity: 8, namePrefix: "VIP tapchan" },
 ];
 
 function isStartCommand(text) {
@@ -103,22 +113,25 @@ function buildBookingsKeyboard() {
   return {
     inline_keyboard: [
       [
-        { text: "Pending", callback_data: `${ACTIONS.bookings}pending` },
-        { text: "Awaiting", callback_data: `${ACTIONS.bookings}awaiting` },
+        { text: "🕓 Kutilmoqda", callback_data: `${ACTIONS.bookings}pending` },
+        { text: "🧾 Chek tekshiruvi", callback_data: `${ACTIONS.bookings}awaiting` },
       ],
       [
-        { text: "Confirmed", callback_data: `${ACTIONS.bookings}confirmed` },
-        { text: "Rejected", callback_data: `${ACTIONS.bookings}rejected` },
+        { text: "✅ Tasdiqlangan", callback_data: `${ACTIONS.bookings}confirmed` },
+        { text: "❌ Rad etilgan", callback_data: `${ACTIONS.bookings}rejected` },
       ],
       [
-        { text: "Today", callback_data: `${ACTIONS.bookings}today` },
-        { text: "Tomorrow", callback_data: `${ACTIONS.bookings}tomorrow` },
+        { text: "📅 Bugun", callback_data: `${ACTIONS.bookings}today` },
+        { text: "📆 Ertaga", callback_data: `${ACTIONS.bookings}tomorrow` },
       ],
       [
-        { text: "Website", callback_data: `${ACTIONS.bookings}src:website` },
-        { text: "Telegram", callback_data: `${ACTIONS.bookings}src:telegram` },
+        { text: "🌐 Sayt", callback_data: `${ACTIONS.bookings}src:website` },
+        { text: "💬 Telegram", callback_data: `${ACTIONS.bookings}src:telegram` },
       ],
-      [{ text: "Back", callback_data: ACTIONS.backMain }],
+      [
+        { text: "⬇️ CSV yuklash", callback_data: `${ACTIONS.report}download_history` },
+        { text: "🔙 Orqaga", callback_data: ACTIONS.backMain },
+      ],
     ],
   };
 }
@@ -127,15 +140,46 @@ function buildAnalyticsKeyboard() {
   return {
     inline_keyboard: [
       [
-        { text: "Today", callback_data: `${ACTIONS.analytics}today` },
-        { text: "This week", callback_data: `${ACTIONS.analytics}week` },
-        { text: "This month", callback_data: `${ACTIONS.analytics}month` },
+        { text: "📅 Bugun", callback_data: `${ACTIONS.analytics}today` },
+        { text: "🗓 Shu hafta", callback_data: `${ACTIONS.analytics}week` },
+        { text: "🗓 Shu oy", callback_data: `${ACTIONS.analytics}month` },
       ],
       [
-        { text: "Today availability", callback_data: `${ACTIONS.availability}today` },
-        { text: "Tomorrow availability", callback_data: `${ACTIONS.availability}tomorrow` },
+        { text: "🏡 Bugungi bandlik", callback_data: `${ACTIONS.availability}today` },
+        { text: "🌤 Ertangi bandlik", callback_data: `${ACTIONS.availability}tomorrow` },
       ],
-      [{ text: "Back", callback_data: ACTIONS.backMain }],
+      [{ text: "🔙 Orqaga", callback_data: ACTIONS.backMain }],
+    ],
+  };
+}
+
+function buildReportKeyboard() {
+  return {
+    inline_keyboard: [
+      [
+        { text: "🌙 Bugungi hisobot", callback_data: `${ACTIONS.report}send_today` },
+        { text: "⬇️ Bronlar CSV", callback_data: `${ACTIONS.report}download_history` },
+      ],
+      [
+        { text: "👤 Qabul qiluvchilar", callback_data: `${ACTIONS.report}recipients` },
+        { text: "🔙 Orqaga", callback_data: ACTIONS.backMain },
+      ],
+    ],
+  };
+}
+
+function buildReportRecipientsKeyboard(recipients) {
+  return {
+    inline_keyboard: [
+      [{ text: "➕ @username qo'shish", callback_data: `${ACTIONS.report}add_username` }],
+      [{ text: "➕ Telefon qo'shish", callback_data: `${ACTIONS.report}add_phone` }],
+      ...recipients.slice(0, 10).map((item) => [
+        {
+          text: `🗑 O'chirish: ${item.label || item.telegramHandle || item.phone || item.id}`,
+          callback_data: `${ACTIONS.reportRecipientDelete}${item.id}`,
+        },
+      ]),
+      [{ text: "🔙 Orqaga", callback_data: `${ACTIONS.report}menu` }],
     ],
   };
 }
@@ -158,7 +202,7 @@ function buildResourcesKeyboard(resources) {
         callback_data: `${ACTIONS.resourceCreate}${item.type}`,
       })),
       [{ text: RESOURCE_TEMPLATES[4].shortLabel, callback_data: `${ACTIONS.resourceCreate}${RESOURCE_TEMPLATES[4].type}` }],
-      [{ text: "Back", callback_data: ACTIONS.backMain }],
+      [{ text: "🔙 Orqaga", callback_data: ACTIONS.backMain }],
     ],
   };
 }
@@ -167,22 +211,22 @@ function buildResourceDetailKeyboard(resource) {
   return {
     inline_keyboard: [
       [
-        { text: "Capacity -", callback_data: `${ACTIONS.resourceCapDown}${resource.id}` },
-        { text: "Capacity +", callback_data: `${ACTIONS.resourceCapUp}${resource.id}` },
+        { text: "➖ Sig'im", callback_data: `${ACTIONS.resourceCapDown}${resource.id}` },
+        { text: "➕ Sig'im", callback_data: `${ACTIONS.resourceCapUp}${resource.id}` },
       ],
       [
-        { text: "Upload image", callback_data: `${ACTIONS.resourceImageUpload}${resource.id}` },
-        { text: "Delete image", callback_data: `${ACTIONS.resourceImageDelete}${resource.id}` },
+        { text: "🖼 Rasm yuklash", callback_data: `${ACTIONS.resourceImageUpload}${resource.id}` },
+        { text: "🗑 Rasm o'chirish", callback_data: `${ACTIONS.resourceImageDelete}${resource.id}` },
       ],
       [
         {
-          text: resource.is_active ? "Disable" : "Enable",
+          text: resource.is_active ? "⛔ O'chirish" : "✅ Yoqish",
           callback_data: `${ACTIONS.resourceToggle}${resource.id}`,
         },
       ],
       [
-        { text: "Resources", callback_data: `${ACTIONS.resource}menu` },
-        { text: "Back", callback_data: ACTIONS.backMain },
+        { text: "🏡 Resurslar", callback_data: `${ACTIONS.resource}menu` },
+        { text: "🔙 Orqaga", callback_data: ACTIONS.backMain },
       ],
     ],
   };
@@ -194,7 +238,7 @@ function buildPricingKeyboard(rules) {
       ...rules.map((rule) => [
         { text: rule.resourceType, callback_data: `${ACTIONS.pricing}${rule.resourceType}` },
       ]),
-      [{ text: "Back", callback_data: ACTIONS.backMain }],
+      [{ text: "🔙 Orqaga", callback_data: ACTIONS.backMain }],
     ],
   };
 }
@@ -202,29 +246,29 @@ function buildPricingKeyboard(rules) {
 function buildPricingDetailKeyboard(rule) {
   const rows = [
     [
-      { text: "Base -10k", callback_data: `${ACTIONS.pricingBaseDown}${rule.resourceType}` },
-      { text: "Base +10k", callback_data: `${ACTIONS.pricingBaseUp}${rule.resourceType}` },
+      { text: "Asosiy -10k", callback_data: `${ACTIONS.pricingBaseDown}${rule.resourceType}` },
+      { text: "Asosiy +10k", callback_data: `${ACTIONS.pricingBaseUp}${rule.resourceType}` },
     ],
     [
-      { text: "Extra -5k", callback_data: `${ACTIONS.pricingExtraDown}${rule.resourceType}` },
-      { text: "Extra +5k", callback_data: `${ACTIONS.pricingExtraUp}${rule.resourceType}` },
+      { text: "Qo'shimcha -5k", callback_data: `${ACTIONS.pricingExtraDown}${rule.resourceType}` },
+      { text: "Qo'shimcha +5k", callback_data: `${ACTIONS.pricingExtraUp}${rule.resourceType}` },
     ],
     [
-      { text: "Included -1", callback_data: `${ACTIONS.pricingIncludedDown}${rule.resourceType}` },
-      { text: "Included +1", callback_data: `${ACTIONS.pricingIncludedUp}${rule.resourceType}` },
+      { text: "Kiritilgan -1", callback_data: `${ACTIONS.pricingIncludedDown}${rule.resourceType}` },
+      { text: "Kiritilgan +1", callback_data: `${ACTIONS.pricingIncludedUp}${rule.resourceType}` },
     ],
   ];
 
   if (rule.includesTapchan) {
     rows.push([
-      { text: "Discount -5%", callback_data: `${ACTIONS.pricingDiscountDown}${rule.resourceType}` },
-      { text: "Discount +5%", callback_data: `${ACTIONS.pricingDiscountUp}${rule.resourceType}` },
+      { text: "Chegirma -5%", callback_data: `${ACTIONS.pricingDiscountDown}${rule.resourceType}` },
+      { text: "Chegirma +5%", callback_data: `${ACTIONS.pricingDiscountUp}${rule.resourceType}` },
     ]);
   }
 
   rows.push([
-    { text: "Pricing", callback_data: `${ACTIONS.pricing}menu` },
-    { text: "Back", callback_data: ACTIONS.backMain },
+    { text: "💵 Narxlar", callback_data: `${ACTIONS.pricing}menu` },
+    { text: "🔙 Orqaga", callback_data: ACTIONS.backMain },
   ]);
 
   return { inline_keyboard: rows };
@@ -232,7 +276,7 @@ function buildPricingDetailKeyboard(rule) {
 
 function formatBookingList(title, bookings) {
   if (bookings.length === 0) {
-    return `${title}\n\nNo bookings found.`;
+    return `${title}\n\nHozircha bronlar topilmadi.`;
   }
 
   return [
@@ -240,57 +284,57 @@ function formatBookingList(title, bookings) {
     "",
     ...bookings.map((booking) =>
       [
-        `${booking.bookingLabel}`,
+        `🧾 ${booking.bookingLabel}`,
         `ID: ${booking.id}`,
-        `Status: ${booking.trackingStatus}`,
-        `Source: ${booking.source}`,
-        `Dates: ${booking.dateStart}${booking.dateEnd ? ` - ${booking.dateEnd}` : ""}`,
-        `Price: ${formatPrice(booking.totalPrice)} UZS`,
+        `Holat: ${booking.trackingStatus}`,
+        `Manba: ${booking.source}`,
+        `Sana: ${booking.dateStart}${booking.dateEnd ? ` - ${booking.dateEnd}` : ""}`,
+        `Narx: ${formatPrice(booking.totalPrice)} UZS`,
       ].join("\n")),
   ].join("\n\n");
 }
 
 function formatResourceDetail(resource, overview) {
   return [
-    "Resource details",
+    "🏡 Resurs tafsilotlari",
     "",
-    `Name: ${resource.name}`,
-    `Type: ${resource.type}`,
-    `Capacity: ${resource.capacity}`,
-    `Active: ${resource.is_active ? "yes" : "no"}`,
-    `Image: ${resource.imageUrl ? "set" : "not set"}`,
-    `Available now: ${resource.is_active && !resource.bookedNow ? "yes" : "no"}`,
-    `Upcoming bookings: ${resource.upcomingBookings}`,
+    `Nomi: ${resource.name}`,
+    `Turi: ${resource.type}`,
+    `Sig'imi: ${resource.capacity}`,
+    `Holati: ${resource.is_active ? "faol" : "o'chirilgan"}`,
+    `Rasm: ${resource.imageUrl ? "bor" : "yo'q"}`,
+    `Hozir band emas: ${resource.is_active && !resource.bookedNow ? "ha" : "yo'q"}`,
+    `Yaqin bronlar: ${resource.upcomingBookings}`,
     "",
-    `Total active resources: ${overview.activeResources}`,
-    `Booked now: ${overview.bookedNow}`,
-    `Free now: ${overview.availableNow}`,
+    `Faol resurslar: ${overview.activeResources}`,
+    `Hozir band: ${overview.bookedNow}`,
+    `Hozir bo'sh: ${overview.availableNow}`,
   ].join("\n");
 }
 
 function formatPricingDetail(rule) {
   return [
-    "Pricing control",
+    "💵 Narx boshqaruvi",
     "",
-    `Resource type: ${rule.resourceType}`,
-    `Base price: ${formatPrice(rule.basePrice)} UZS`,
-    `Extra person: ${formatPrice(rule.extraPersonPrice)} UZS`,
-    `Included people: ${rule.maxIncludedPeople}`,
-    `Discount: ${Math.round(rule.discountIfExcluded * 100)}%`,
+    `Resurs turi: ${rule.resourceType}`,
+    `Asosiy narx: ${formatPrice(rule.basePrice)} UZS`,
+    `Qo'shimcha odam: ${formatPrice(rule.extraPersonPrice)} UZS`,
+    `Kiritilgan odam: ${rule.maxIncludedPeople}`,
+    `Chegirma: ${Math.round(rule.discountIfExcluded * 100)}%`,
   ].join("\n");
 }
 
 function formatSystemStatus(status) {
   return [
-    "System status",
+    "🛠 Tizim holati",
     "",
-    `Active resources: ${status.activeResources}`,
-    `Inactive resources: ${status.inactiveResources}`,
-    `Pending bookings: ${status.pendingBookings}`,
-    `Awaiting confirmation: ${status.awaitingConfirmation}`,
-    `Available now: ${status.availableNow}`,
-    `Booked now: ${status.bookedNow}`,
-    `Issues: ${status.issues.join("; ") || "none"}`,
+    `Faol resurslar: ${status.activeResources}`,
+    `Nofaol resurslar: ${status.inactiveResources}`,
+    `Kutilayotgan bronlar: ${status.pendingBookings}`,
+    `Tasdiq kutilmoqda: ${status.awaitingConfirmation}`,
+    `Hozir bo'sh: ${status.availableNow}`,
+    `Hozir band: ${status.bookedNow}`,
+    `Muammolar: ${status.issues.join("; ") || "yo'q"}`,
   ].join("\n");
 }
 
@@ -298,6 +342,7 @@ export function createManagerBot() {
   const managerToken = readOptionalEnv("MANAGER_BOT_TOKEN");
   const telegram = managerToken ? createTelegramClient(managerToken) : null;
   const pendingImageUploads = new Map();
+  const pendingRecipientInputs = new Map();
 
   async function sendManagerMessage(chatId, text, extra = {}) {
     if (!telegram) {
@@ -320,36 +365,122 @@ export function createManagerBot() {
     }
   }
 
-  async function showMainMenu(chatId, text = "Manager dashboard ready.") {
+  async function showMainMenu(chatId, text = "👋 Manager panel tayyor.") {
     await sendManagerMessage(chatId, text, {
       reply_markup: buildMainKeyboard(),
     });
   }
 
   async function showBookingsMenu(chatId) {
-    await sendManagerMessage(chatId, "Booking history and availability filters:", {
+    await sendManagerMessage(chatId, "📚 Bronlar bo'limi\n\nKerakli filtrni tanlang yoki CSV faylni yuklab oling.", {
       reply_markup: buildBookingsKeyboard(),
     });
   }
 
   async function showResourcesMenu(chatId) {
     const overview = await getResourceOverview();
-    await sendManagerMessage(chatId, `${formatAvailabilityForTelegram(overview)}\n\nQuick add buttons are below.`, {
+    await sendManagerMessage(chatId, `🏡 Resurslar nazorati\n\n${formatAvailabilityForTelegram(overview)}\n\nPastdagi tugmalar orqali tez qo'shish ham mumkin.`, {
       reply_markup: buildResourcesKeyboard(overview.resources.slice(0, 20)),
     });
   }
 
   async function showPricingMenu(chatId) {
     const rules = await listPricingRules();
-    await sendManagerMessage(chatId, "Pricing controls:", {
+    await sendManagerMessage(chatId, "💵 Narx boshqaruvi\n\nResurs turini tanlang va qiymatlarni tugmalar bilan yangilang.", {
       reply_markup: buildPricingKeyboard(rules),
     });
   }
 
   async function showAnalyticsMenu(chatId) {
-    await sendManagerMessage(chatId, "Analytics dashboard:", {
+    await sendManagerMessage(chatId, "📊 Analitika markazi\n\nDavrni tanlang va tizim ko'rsatkichlarini ko'ring.", {
       reply_markup: buildAnalyticsKeyboard(),
     });
+  }
+
+  async function showReportMenu(chatId) {
+    const recipients = await getDailyReportRecipients();
+    await sendManagerMessage(chatId, [
+      "🗂 Hisobotlar markazi",
+      "",
+      `Ulangan qabul qiluvchilar: ${recipients.length}`,
+      "Bu yerdan bugungi hisobotni yuborish, to'liq bron tarixini CSV ko'rinishida yuklash va owner qabul qiluvchilarini sozlash mumkin.",
+    ].join("\n"), {
+      reply_markup: buildReportKeyboard(),
+    });
+  }
+
+  async function showReportRecipientsMenu(chatId) {
+    const recipients = await listReportRecipients();
+    await sendManagerMessage(chatId, formatReportRecipientsForTelegram(recipients), {
+      reply_markup: buildReportRecipientsKeyboard(recipients),
+    });
+  }
+
+  async function sendBookingHistoryFile(chatId) {
+    const file = await exportBookingHistoryCsv();
+    await telegram.sendDocument(chatId, {
+      buffer: file.buffer,
+      filename: file.filename,
+      contentType: "text/csv",
+    }, {
+      caption: `📦 To'liq bron tarixi yuklandi. Jami yozuvlar: ${file.count}`,
+    });
+  }
+
+  async function sendDailyReport(chatId, broadcast = false) {
+    const text = await buildDailyReportMessage();
+
+    if (!broadcast) {
+      await sendManagerMessage(chatId, text, {
+        reply_markup: buildReportKeyboard(),
+      });
+      return;
+    }
+
+    const recipients = await getDailyReportRecipients();
+
+    if (recipients.length === 0) {
+      await sendManagerMessage(chatId, "⚠️ Hozircha ulangan owner qabul qiluvchilari yo'q. Avval qabul qiluvchini bog'lang.", {
+        reply_markup: buildReportKeyboard(),
+      });
+      return;
+    }
+
+    let sentCount = 0;
+
+    for (const recipient of recipients) {
+      try {
+        await telegram.sendMessage(recipient.telegramChatId, text);
+        sentCount += 1;
+      } catch (error) {
+        console.error(`Daily report send failed for recipient ${recipient.id}: ${formatAxiosError(error)}`);
+      }
+    }
+
+    await sendManagerMessage(chatId, `🌙 Bugungi hisobot yuborildi. Qabul qilganlar soni: ${sentCount}.`, {
+      reply_markup: buildReportKeyboard(),
+    });
+  }
+
+  async function maybeLinkReportRecipient(message) {
+    const chatId = Number(message?.chat?.id ?? 0);
+    const username = String(message?.from?.username ?? "").trim();
+    const phone = String(message?.contact?.phone_number ?? "").trim();
+
+    if (!chatId) {
+      return null;
+    }
+
+    try {
+      return await linkReportRecipientFromTelegram({
+        chatId,
+        username,
+        phone,
+      });
+    } catch (error) {
+      console.error(`Report recipient link failed: ${formatAxiosError(error)}`);
+      return null;
+    }
   }
 
   async function showFilteredBookings(chatId, key) {
@@ -357,7 +488,7 @@ export function createManagerBot() {
       const bookings = await listBookingsForManager({
         date: new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Tashkent", year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date()),
       });
-      await sendManagerMessage(chatId, formatBookingList("Today bookings", bookings), { reply_markup: buildBookingsKeyboard() });
+      await sendManagerMessage(chatId, formatBookingList("📅 Bugungi bronlar", bookings), { reply_markup: buildBookingsKeyboard() });
       return;
     }
 
@@ -366,14 +497,15 @@ export function createManagerBot() {
       tomorrow.setDate(tomorrow.getDate() + 1);
       const tomorrowText = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Tashkent", year: "numeric", month: "2-digit", day: "2-digit" }).format(tomorrow);
       const bookings = await listBookingsForManager({ date: tomorrowText });
-      await sendManagerMessage(chatId, formatBookingList("Tomorrow bookings", bookings), { reply_markup: buildBookingsKeyboard() });
+      await sendManagerMessage(chatId, formatBookingList("📆 Ertangi bronlar", bookings), { reply_markup: buildBookingsKeyboard() });
       return;
     }
 
     if (key.startsWith("src:")) {
       const source = key.slice(4);
       const bookings = await listBookingsForManager({ source });
-      await sendManagerMessage(chatId, formatBookingList(`${source} bookings`, bookings), { reply_markup: buildBookingsKeyboard() });
+      const sourceLabel = source === "telegram" ? "Telegram" : source === "website" ? "Sayt" : source;
+      await sendManagerMessage(chatId, formatBookingList(`🌐 ${sourceLabel} bronlari`, bookings), { reply_markup: buildBookingsKeyboard() });
       return;
     }
 
@@ -386,7 +518,13 @@ export function createManagerBot() {
 
     const status = statusMap[key] ?? "";
     const bookings = await listBookingsForManager({ status });
-    await sendManagerMessage(chatId, formatBookingList(`${status || "Recent"} bookings`, bookings), {
+    const titleMap = {
+      pending: "🕓 Kutilayotgan bronlar",
+      "awaiting confirmation": "🧾 Chek tekshiruvidagi bronlar",
+      confirmed: "✅ Tasdiqlangan bronlar",
+      rejected: "❌ Rad etilgan bronlar",
+    };
+    await sendManagerMessage(chatId, formatBookingList(titleMap[status] ?? "📚 So'nggi bronlar", bookings), {
       reply_markup: buildBookingsKeyboard(),
     });
   }
@@ -413,7 +551,7 @@ export function createManagerBot() {
     const resource = overview.resources.find((item) => item.id === resourceId);
 
     if (!resource) {
-      await sendManagerMessage(chatId, "Resource topilmadi.", { reply_markup: buildMainKeyboard() });
+      await sendManagerMessage(chatId, "❌ Resurs topilmadi.", { reply_markup: buildMainKeyboard() });
       return;
     }
 
@@ -424,7 +562,7 @@ export function createManagerBot() {
     };
 
     if (imageAsset?.url && telegram) {
-      await telegram.sendPhoto(chatId, imageAsset.url, `${resource.name} image`);
+      await telegram.sendPhoto(chatId, imageAsset.url, `🖼 ${resource.name} rasmi`);
     }
 
     await sendManagerMessage(chatId, formatResourceDetail(detail, overview), {
@@ -437,7 +575,7 @@ export function createManagerBot() {
     const rule = rules.find((item) => item.resourceType === resourceType);
 
     if (!rule) {
-      await sendManagerMessage(chatId, "Pricing rule topilmadi.", { reply_markup: buildMainKeyboard() });
+      await sendManagerMessage(chatId, "❌ Narx qoidasi topilmadi.", { reply_markup: buildMainKeyboard() });
       return;
     }
 
@@ -450,7 +588,7 @@ export function createManagerBot() {
     const template = RESOURCE_TEMPLATES.find((item) => item.type === resourceType);
 
     if (!template) {
-      await sendManagerMessage(chatId, "Resource template topilmadi.", {
+      await sendManagerMessage(chatId, "❌ Resurs shabloni topilmadi.", {
         reply_markup: buildMainKeyboard(),
       });
       return;
@@ -465,7 +603,7 @@ export function createManagerBot() {
       isActive: true,
     });
 
-    await sendManagerMessage(chatId, `${created.name} yaratildi.`, {
+    await sendManagerMessage(chatId, `✅ ${created.name} yaratildi.`, {
       reply_markup: buildMainKeyboard(),
     });
     await showResourceDetail(chatId, created.id);
@@ -487,15 +625,15 @@ export function createManagerBot() {
       ]);
 
       if (!proofAsset || !context?.booking) {
-        await answerCallbackQuery(callbackQueryId, "Proof topilmadi.");
+        await answerCallbackQuery(callbackQueryId, "Chek topilmadi");
         return true;
       }
 
       await sendManagerProofPreview(chatId, bookingId, proofAsset, context.booking);
-      await answerCallbackQuery(callbackQueryId, "Proof yuborildi.");
+      await answerCallbackQuery(callbackQueryId, "Chek yuborildi");
     } catch (error) {
       console.error(`Manager proof preview failed: ${formatAxiosError(error)}`);
-      await answerCallbackQuery(callbackQueryId, "Proofni ochib bo'lmadi.");
+      await answerCallbackQuery(callbackQueryId, "Chekni ochib bo'lmadi");
     }
 
     return true;
@@ -516,7 +654,7 @@ export function createManagerBot() {
 
       await clearManagerDecisionKeyboard(chatId, messageId, bookingId);
       await answerCallbackQuery(callbackQueryId, approved ? "Bron tasdiqlandi." : "Bron rad etildi.");
-      await sendManagerMessage(chatId, approved ? "Booking confirmed." : "Booking rejected.", {
+      await sendManagerMessage(chatId, approved ? "✅ Bron tasdiqlandi." : "❌ Bron rad etildi.", {
         reply_markup: buildMainKeyboard(),
       });
       await notifyCustomerAboutDecision(context, approved);
@@ -540,7 +678,7 @@ export function createManagerBot() {
     try {
       if (data.startsWith(ACTIONS.main)) {
         const key = data.slice(ACTIONS.main.length);
-        await answerCallbackQuery(callbackQueryId, "Menu");
+        await answerCallbackQuery(callbackQueryId, "Bo'lim ochildi");
 
         if (key === "bookings") {
           await showBookingsMenu(chatId);
@@ -563,7 +701,7 @@ export function createManagerBot() {
         }
 
         if (key === "report") {
-          await showAnalytics(chatId, "today");
+          await showReportMenu(chatId);
           return true;
         }
 
@@ -580,31 +718,82 @@ export function createManagerBot() {
       }
 
       if (data === ACTIONS.backMain) {
-        await answerCallbackQuery(callbackQueryId, "Main menu");
-        await showMainMenu(chatId);
+        await answerCallbackQuery(callbackQueryId, "Bosh menyu");
+        await showMainMenu(chatId, "🏠 Boshqaruv paneli");
         return true;
       }
 
       if (data.startsWith(ACTIONS.bookings)) {
-        await answerCallbackQuery(callbackQueryId, "Bookings");
+        await answerCallbackQuery(callbackQueryId, "Bronlar");
         await showFilteredBookings(chatId, data.slice(ACTIONS.bookings.length));
         return true;
       }
 
       if (data.startsWith(ACTIONS.analytics)) {
-        await answerCallbackQuery(callbackQueryId, "Analytics");
+        await answerCallbackQuery(callbackQueryId, "Analitika");
         await showAnalytics(chatId, data.slice(ACTIONS.analytics.length));
         return true;
       }
 
       if (data.startsWith(ACTIONS.availability)) {
-        await answerCallbackQuery(callbackQueryId, "Availability");
+        await answerCallbackQuery(callbackQueryId, "Bandlik");
         await showAvailability(chatId, data.slice(ACTIONS.availability.length));
         return true;
       }
 
+      if (data === `${ACTIONS.report}menu`) {
+        await answerCallbackQuery(callbackQueryId, "Hisobotlar");
+        await showReportMenu(chatId);
+        return true;
+      }
+
+      if (data === `${ACTIONS.report}send_today`) {
+        await answerCallbackQuery(callbackQueryId, "Hisobot yuborilmoqda");
+        await sendDailyReport(chatId, true);
+        return true;
+      }
+
+      if (data === `${ACTIONS.report}download_history`) {
+        await answerCallbackQuery(callbackQueryId, "CSV tayyorlanmoqda");
+        await sendBookingHistoryFile(chatId);
+        return true;
+      }
+
+      if (data === `${ACTIONS.report}recipients`) {
+        await answerCallbackQuery(callbackQueryId, "Qabul qiluvchilar");
+        await showReportRecipientsMenu(chatId);
+        return true;
+      }
+
+      if (data === `${ACTIONS.report}add_username`) {
+        pendingRecipientInputs.set(chatId, { mode: "username" });
+        await answerCallbackQuery(callbackQueryId, "Username kiriting");
+        await sendManagerMessage(chatId, "👤 Owner Telegram username yuboring.\n\nMasalan: `@ownername`", {
+          parse_mode: "Markdown",
+          reply_markup: buildMainKeyboard(),
+        });
+        return true;
+      }
+
+      if (data === `${ACTIONS.report}add_phone`) {
+        pendingRecipientInputs.set(chatId, { mode: "phone" });
+        await answerCallbackQuery(callbackQueryId, "Telefon yuboring");
+        await sendManagerMessage(chatId, "📱 Owner telefon raqamini yuboring.\n\nMasalan: `+998901234567`", {
+          parse_mode: "Markdown",
+          reply_markup: buildMainKeyboard(),
+        });
+        return true;
+      }
+
+      if (data.startsWith(ACTIONS.reportRecipientDelete)) {
+        await removeReportRecipient(data.slice(ACTIONS.reportRecipientDelete.length));
+        await answerCallbackQuery(callbackQueryId, "Qabul qiluvchi o'chirildi");
+        await showReportRecipientsMenu(chatId);
+        return true;
+      }
+
       if (data === `${ACTIONS.resource}menu`) {
-        await answerCallbackQuery(callbackQueryId, "Resources");
+        await answerCallbackQuery(callbackQueryId, "Resurslar");
         await showResourcesMenu(chatId);
         return true;
       }
@@ -618,7 +807,7 @@ export function createManagerBot() {
           return true;
         }
         await updateResourceDetails({ resourceId, isActive: !current.is_active });
-        await answerCallbackQuery(callbackQueryId, "Resource updated.");
+        await answerCallbackQuery(callbackQueryId, "Resurs yangilandi");
         await showResourceDetail(chatId, resourceId);
         return true;
       }
@@ -634,7 +823,7 @@ export function createManagerBot() {
         }
         const delta = prefix === ACTIONS.resourceCapUp ? 1 : -1;
         await updateResourceDetails({ resourceId, capacity: Math.max(current.capacity + delta, 1) });
-        await answerCallbackQuery(callbackQueryId, "Capacity updated.");
+        await answerCallbackQuery(callbackQueryId, "Sig'im yangilandi");
         await showResourceDetail(chatId, resourceId);
         return true;
       }
@@ -654,8 +843,8 @@ export function createManagerBot() {
           resourceType: current.type,
           resourceName: current.name,
         });
-        await answerCallbackQuery(callbackQueryId, "Image upload mode");
-        await sendManagerMessage(chatId, `${current.name} uchun yangi rasm yuboring. Photo yoki image document jo'nating.`, {
+        await answerCallbackQuery(callbackQueryId, "Rasm yuklash");
+        await sendManagerMessage(chatId, `🖼 ${current.name} uchun yangi rasm yuboring.\n\nFoto yoki rasm-document jo'nating.`, {
           reply_markup: buildMainKeyboard(),
         });
         return true;
@@ -672,25 +861,25 @@ export function createManagerBot() {
         }
 
         await deleteServiceMedia(current.type);
-        await answerCallbackQuery(callbackQueryId, "Image deleted.");
+        await answerCallbackQuery(callbackQueryId, "Rasm o'chirildi");
         await showResourceDetail(chatId, resourceId);
         return true;
       }
 
       if (data.startsWith(ACTIONS.resourceCreate)) {
-        await answerCallbackQuery(callbackQueryId, "Resource created");
+        await answerCallbackQuery(callbackQueryId, "Resurs yaratildi");
         await createResourceFromTemplate(chatId, data.slice(ACTIONS.resourceCreate.length));
         return true;
       }
 
       if (data.startsWith(ACTIONS.resource)) {
-        await answerCallbackQuery(callbackQueryId, "Resource");
+        await answerCallbackQuery(callbackQueryId, "Resurs");
         await showResourceDetail(chatId, data.slice(ACTIONS.resource.length));
         return true;
       }
 
       if (data === `${ACTIONS.pricing}menu`) {
-        await answerCallbackQuery(callbackQueryId, "Pricing");
+        await answerCallbackQuery(callbackQueryId, "Narxlar");
         await showPricingMenu(chatId);
         return true;
       }
@@ -721,14 +910,14 @@ export function createManagerBot() {
             ? Math.min(Math.max(current[config.field] + config.delta, 0), 1)
             : Math.max(current[config.field] + config.delta, 0);
           await updatePricingRuleValues(resourceType, next);
-          await answerCallbackQuery(callbackQueryId, "Pricing updated.");
+          await answerCallbackQuery(callbackQueryId, "Narx yangilandi");
           await showPricingDetail(chatId, resourceType);
           return true;
         }
       }
 
       if (data.startsWith(ACTIONS.pricing)) {
-        await answerCallbackQuery(callbackQueryId, "Pricing");
+        await answerCallbackQuery(callbackQueryId, "Narx");
         await showPricingDetail(chatId, data.slice(ACTIONS.pricing.length));
         return true;
       }
@@ -751,6 +940,12 @@ export function createManagerBot() {
         const chatId = message.chat.id;
         const text = String(message.text ?? "").trim();
         const pendingImageUpload = pendingImageUploads.get(chatId);
+        const pendingRecipientInput = pendingRecipientInputs.get(chatId);
+        const linkedRecipient = await maybeLinkReportRecipient(message);
+
+        if (linkedRecipient && (isStartCommand(text) || isHelpCommand(text) || message?.contact)) {
+          await sendManagerMessage(chatId, `🔔 Hisobot qabul qiluvchisi bog'landi: ${linkedRecipient.label || linkedRecipient.telegramHandle || linkedRecipient.phone}.`);
+        }
 
         if (pendingImageUpload) {
           const photo = Array.isArray(message.photo) ? message.photo.at(-1) : null;
@@ -760,7 +955,7 @@ export function createManagerBot() {
           const contentType = document?.mime_type || "image/jpeg";
 
           if (!fileId || (!photo && !String(contentType).startsWith("image/"))) {
-            await sendManagerMessage(chatId, "Faqat rasm yuboring. Photo yoki image document qabul qilinadi.");
+            await sendManagerMessage(chatId, "⚠️ Faqat rasm yuboring. Foto yoki rasm-document qabul qilinadi.");
             return;
           }
 
@@ -779,18 +974,42 @@ export function createManagerBot() {
               contentType,
             });
             pendingImageUploads.delete(chatId);
-            await sendManagerMessage(chatId, `${pendingImageUpload.resourceName} rasmi yangilandi.`);
+            await sendManagerMessage(chatId, `✅ ${pendingImageUpload.resourceName} rasmi yangilandi.`);
             await showResourceDetail(chatId, pendingImageUpload.resourceId);
           } catch (error) {
             console.error(`Manager image upload failed: ${formatAxiosError(error)}`);
-            await sendManagerMessage(chatId, "Servis rasmini saqlab bo'lmadi.");
+            await sendManagerMessage(chatId, "❌ Servis rasmini saqlab bo'lmadi.");
+          }
+
+          return;
+        }
+
+        if (pendingRecipientInput) {
+          try {
+            const value = text || String(message?.contact?.phone_number ?? "").trim();
+
+            if (!value) {
+              await sendManagerMessage(chatId, "⚠️ Qiymat yuborilmadi. Username yoki telefonni qayta yuboring.");
+              return;
+            }
+
+            const recipient = await addReportRecipient({
+              telegramHandle: pendingRecipientInput.mode === "username" ? value : "",
+              phone: pendingRecipientInput.mode === "phone" ? value : "",
+            });
+            pendingRecipientInputs.delete(chatId);
+            await sendManagerMessage(chatId, `✅ Qabul qiluvchi saqlandi: ${recipient.telegramHandle ? `@${recipient.telegramHandle}` : recipient.phone}\n\nOwner botga kirib /start yuborsa, hisobotlar avtomatik ulangan holatga o'tadi.`);
+            await showReportRecipientsMenu(chatId);
+          } catch (error) {
+            console.error(`Report recipient save failed: ${formatAxiosError(error)}`);
+            await sendManagerMessage(chatId, error instanceof Error ? `❌ ${error.message}` : "❌ Qabul qiluvchini saqlab bo'lmadi.");
           }
 
           return;
         }
 
         if (isStartCommand(text) || isHelpCommand(text)) {
-          await showMainMenu(chatId, "Manager panel tayyor. Barcha boshqaruv tugmalar orqali ishlaydi.");
+          await showMainMenu(chatId, "👋 Manager panel tayyor.\n\nBarcha boshqaruv tugmalar orqali ishlaydi.");
           return;
         }
 
@@ -815,7 +1034,7 @@ export function createManagerBot() {
         }
 
         if (text === BUTTONS.report) {
-          await showAnalytics(chatId, "today");
+          await showReportMenu(chatId);
           return;
         }
 
@@ -827,7 +1046,7 @@ export function createManagerBot() {
           return;
         }
 
-        await showMainMenu(chatId, "Iltimos, boshqaruv uchun tugmalardan foydalaning.");
+        await showMainMenu(chatId, "🙂 Iltimos, boshqaruv uchun tugmalardan foydalaning.");
         return;
       }
 
@@ -851,7 +1070,7 @@ export function createManagerBot() {
         return;
       }
 
-      await answerCallbackQuery(callbackQuery.id, "Unknown action.");
+      await answerCallbackQuery(callbackQuery.id, "Noma'lum amal");
     },
   };
 }

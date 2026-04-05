@@ -124,6 +124,21 @@ export function createTelegramClient(token) {
         ...extra,
       });
     },
+    sendSticker(chatId, sticker, extra = {}) {
+      if (typeof sticker !== "string") {
+        return callTelegramMultipart("sendSticker", {
+          chat_id: chatId,
+          sticker,
+          ...extra,
+        });
+      }
+
+      return callTelegram("sendSticker", {
+        chat_id: chatId,
+        sticker,
+        ...extra,
+      });
+    },
     answerCallbackQuery(callbackQueryId, text) {
       return callTelegram("answerCallbackQuery", {
         callback_query_id: callbackQueryId,

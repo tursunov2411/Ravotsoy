@@ -7,6 +7,19 @@ function formatPrice(value) {
   return new Intl.NumberFormat("uz-UZ").format(Number(value ?? 0));
 }
 
+function normalizeTelegramHandle(value) {
+  return String(value ?? "").trim().replace(/^@+/, "").toLowerCase();
+}
+
+function normalizePhone(value) {
+  return String(value ?? "").trim().replace(/[^\d+]/g, "");
+}
+
+function csvCell(value) {
+  const text = String(value ?? "");
+  return `"${text.replaceAll("\"", "\"\"")}"`;
+}
+
 function getTodayTashkent() {
   return new Intl.DateTimeFormat("en-CA", {
     timeZone: "Asia/Tashkent",
@@ -43,7 +56,7 @@ function getPeriodRange(period = "today") {
   if (period === "week") {
     const startDate = addDays(today, mondayOffset);
     const endDateExclusive = addDays(startDate, 7);
-    return { label: "This week", startDate, endDateExclusive };
+    return { label: "Shu hafta", startDate, endDateExclusive };
   }
 
   if (period === "month") {
@@ -55,10 +68,10 @@ function getPeriodRange(period = "today") {
       month: "2-digit",
       day: "2-digit",
     }).format(new Date(Date.UTC(month === 12 ? year + 1 : year, month === 12 ? 0 : month, 1)));
-    return { label: "This month", startDate, endDateExclusive };
+    return { label: "Shu oy", startDate, endDateExclusive };
   }
 
-  return { label: "Today", startDate: today, endDateExclusive: addDays(today, 1) };
+  return { label: "Bugun", startDate: today, endDateExclusive: addDays(today, 1) };
 }
 
 function normalizeTrackingStatus(record) {
@@ -123,7 +136,7 @@ export async function createResource({ type, name, capacity, isActive = true }) 
   const normalizedCapacity = Math.max(Number(capacity ?? 1), 1);
 
   if (!normalizedType) {
-    throw new Error("Resource type is required");
+    throw new Error("Resurs turi kiritilishi kerak.");
   }
 
   const { data, error } = await supabase
@@ -262,7 +275,7 @@ export async function updatePricingRuleValues(resourceType, values) {
   const current = currentRules.find((item) => item.resourceType === resourceType);
 
   if (!current) {
-    throw new Error("Pricing rule not found");
+    throw new Error("Narx qoidasi topilmadi.");
   }
 
   const payload = {
@@ -368,15 +381,15 @@ export async function getBusinessAnalytics(period = "today") {
   const insights = [];
 
   if (lowOccupancy) {
-    insights.push("Low occupancy detected. Consider weekday tapchan discounts.");
+    insights.push("Bandlik past. Hafta ichidagi tapchanlar uchun chegirma ko'rib chiqing.");
   }
 
   if (peakDemand) {
-    insights.push("High demand detected. Consider increasing weekend prices.");
+    insights.push("Talab yuqori. Dam olish kunlari narxini oshirishni ko'rib chiqing.");
   }
 
   if (unusedResources.some((item) => item.type.startsWith("tapchan_"))) {
-    insights.push("Unused tapchans detected. Consider promotional bundles for low-demand days.");
+    insights.push("Bo'sh tapchanlar bor. Past talab kunlari uchun aksiya paketlarini sinab ko'ring.");
   }
 
   return {
@@ -392,8 +405,8 @@ export async function getBusinessAnalytics(period = "today") {
     unusedCapacity: unusedResources.reduce((sum, item) => sum + item.capacity, 0),
     unusedResources: unusedResources.map((item) => item.name),
     issues: [
-      roomOccupancyRate === 0 && tapchanUtilizationRate === 0 ? "No confirmed resource utilization in selected period." : "",
-      cancellationRate > 25 ? "Cancellation rate is elevated." : "",
+      roomOccupancyRate === 0 && tapchanUtilizationRate === 0 ? "Tanlangan davrda tasdiqlangan foydalanish ko'rinmadi." : "",
+      cancellationRate > 25 ? "Bekor qilish darajasi yuqori." : "",
     ].filter(Boolean),
     insights,
   };
@@ -416,42 +429,277 @@ export async function getSystemStatus() {
     availableNow: todayOverview.availableNow,
     bookedNow: todayOverview.bookedNow,
     issues: [
-      proofPending.length > 5 ? "Many proofs are waiting for confirmation." : "",
-      todayOverview.availableNow === 0 ? "No resources are currently free." : "",
+      proofPending.length > 5 ? "Tasdiq kutayotgan cheklar soni ko'paygan." : "",
+      todayOverview.availableNow === 0 ? "Hozircha bo'sh resurs qolmagan." : "",
     ].filter(Boolean),
   };
 }
 
+export async function exportBookingHistoryCsv() {
+  const { data, error } = await supabase
+    .from("bookings")
+    .select(
+      "id, booking_label, name, phone, email, source, status, payment_status, guests, total_price, estimated_price, date_start, date_end, created_at, booking_resources(resource_id, resources(name, type, capacity))",
+    )
+    .order("created_at", { ascending: false });
+
+  if (error) {
+    throw error;
+  }
+
+  const bookings = Array.isArray(data) ? data : [];
+  const rows = [
+    [
+      "booking_id",
+      "booking_label",
+      "customer_name",
+      "phone",
+      "email",
+      "source",
+      "tracking_status",
+      "status",
+      "payment_status",
+      "guests",
+      "date_start",
+      "date_end",
+      "total_price",
+      "created_at",
+      "resources",
+    ].map(csvCell).join(","),
+  ];
+
+  for (const booking of bookings) {
+    const items = Array.isArray(booking.booking_resources) ? booking.booking_resources : [];
+    const resources = items
+      .map((item) => {
+        const resource = item.resources ?? {};
+        return `${String(resource.name ?? "Resurs")} (${String(resource.type ?? "")}, ${Number(resource.capacity ?? 0)})`;
+      })
+      .join("; ");
+
+    rows.push([
+      booking.id,
+      booking.booking_label,
+      booking.name,
+      booking.phone,
+      booking.email,
+      booking.source,
+      normalizeTrackingStatus(booking),
+      booking.status,
+      booking.payment_status,
+      booking.guests,
+      booking.date_start,
+      booking.date_end ?? "",
+      Number(booking.total_price ?? booking.estimated_price ?? 0),
+      booking.created_at,
+      resources,
+    ].map(csvCell).join(","));
+  }
+
+  return {
+    filename: `booking-history-${getTodayTashkent()}.csv`,
+    buffer: Buffer.from(`\uFEFF${rows.join("\n")}`, "utf8"),
+    count: bookings.length,
+  };
+}
+
+export async function listReportRecipients() {
+  const { data, error } = await supabase
+    .from("report_recipients")
+    .select("id, label, telegram_handle, phone, telegram_chat_id, is_active, created_at, updated_at")
+    .order("created_at", { ascending: false });
+
+  if (error) {
+    throw error;
+  }
+
+  return Array.isArray(data) ? data.map((item) => ({
+    id: String(item.id),
+    label: String(item.label ?? "").trim(),
+    telegramHandle: String(item.telegram_handle ?? "").trim(),
+    phone: String(item.phone ?? "").trim(),
+    telegramChatId: item.telegram_chat_id ? Number(item.telegram_chat_id) : null,
+    isActive: Boolean(item.is_active),
+    createdAt: String(item.created_at ?? ""),
+    updatedAt: String(item.updated_at ?? ""),
+  })) : [];
+}
+
+export async function addReportRecipient({ telegramHandle = "", phone = "", label = "" }) {
+  const normalizedHandle = normalizeTelegramHandle(telegramHandle);
+  const normalizedPhone = normalizePhone(phone);
+
+  if (!normalizedHandle && !normalizedPhone) {
+    throw new Error("Telegram username yoki telefon raqami kerak.");
+  }
+
+  const { data, error } = await supabase
+    .from("report_recipients")
+    .insert({
+      label: String(label ?? "").trim() || null,
+      telegram_handle: normalizedHandle || null,
+      phone: normalizedPhone || null,
+      is_active: true,
+    })
+    .select("id, label, telegram_handle, phone, telegram_chat_id, is_active, created_at, updated_at")
+    .single();
+
+  if (error) {
+    throw error;
+  }
+
+  return {
+    id: String(data.id),
+    label: String(data.label ?? "").trim(),
+    telegramHandle: String(data.telegram_handle ?? "").trim(),
+    phone: String(data.phone ?? "").trim(),
+    telegramChatId: data.telegram_chat_id ? Number(data.telegram_chat_id) : null,
+    isActive: Boolean(data.is_active),
+    createdAt: String(data.created_at ?? ""),
+    updatedAt: String(data.updated_at ?? ""),
+  };
+}
+
+export async function removeReportRecipient(id) {
+  const { error } = await supabase
+    .from("report_recipients")
+    .delete()
+    .eq("id", id);
+
+  if (error) {
+    throw error;
+  }
+}
+
+export async function linkReportRecipientFromTelegram({ chatId, username = "", phone = "" }) {
+  const normalizedHandle = normalizeTelegramHandle(username);
+  const normalizedPhone = normalizePhone(phone);
+
+  if (!chatId || (!normalizedHandle && !normalizedPhone)) {
+    return null;
+  }
+
+  let query = supabase
+    .from("report_recipients")
+    .select("id, label, telegram_handle, phone, telegram_chat_id, is_active, created_at, updated_at")
+    .eq("is_active", true);
+
+  if (normalizedHandle && normalizedPhone) {
+    query = query.or(`telegram_handle.eq.${normalizedHandle},phone.eq.${normalizedPhone}`);
+  } else if (normalizedHandle) {
+    query = query.eq("telegram_handle", normalizedHandle);
+  } else {
+    query = query.eq("phone", normalizedPhone);
+  }
+
+  const { data, error } = await query.limit(1).maybeSingle();
+
+  if (error) {
+    throw error;
+  }
+
+  if (!data) {
+    return null;
+  }
+
+  const { data: updated, error: updateError } = await supabase
+    .from("report_recipients")
+    .update({
+      telegram_chat_id: Number(chatId),
+      updated_at: new Date().toISOString(),
+    })
+    .eq("id", data.id)
+    .select("id, label, telegram_handle, phone, telegram_chat_id, is_active, created_at, updated_at")
+    .single();
+
+  if (updateError) {
+    throw updateError;
+  }
+
+  return {
+    id: String(updated.id),
+    label: String(updated.label ?? "").trim(),
+    telegramHandle: String(updated.telegram_handle ?? "").trim(),
+    phone: String(updated.phone ?? "").trim(),
+    telegramChatId: updated.telegram_chat_id ? Number(updated.telegram_chat_id) : null,
+    isActive: Boolean(updated.is_active),
+    createdAt: String(updated.created_at ?? ""),
+    updatedAt: String(updated.updated_at ?? ""),
+  };
+}
+
+export async function getDailyReportRecipients() {
+  const recipients = await listReportRecipients();
+  return recipients.filter((item) => item.isActive && Number.isInteger(item.telegramChatId) && item.telegramChatId > 0);
+}
+
+export async function buildDailyReportMessage() {
+  const [analytics, systemStatus] = await Promise.all([
+    getBusinessAnalytics("today"),
+    getSystemStatus(),
+  ]);
+
+  return [
+    "Kunlik biznes hisobot",
+    "",
+    formatAnalyticsForTelegram(analytics),
+    "",
+    `Tizim holati: faol ${systemStatus.activeResources}, kutilayotgan ${systemStatus.pendingBookings}, tasdiq kutilmoqda ${systemStatus.awaitingConfirmation}`,
+  ].join("\n");
+}
+
+export function formatReportRecipientsForTelegram(recipients) {
+  if (!recipients.length) {
+    return [
+      "Hisobot qabul qiluvchilar yo'q.",
+      "",
+      "Manager bu yerdan @username yoki telefon raqam qo'shishi mumkin.",
+      "Username bo'yicha ishlashi uchun owner botga bir marta /start yuborishi kerak.",
+      "Telefon bo'yicha ishlashi uchun owner botga kontaktini yuborishi kerak.",
+    ].join("\n");
+  }
+
+  return [
+    "Hisobot qabul qiluvchilar",
+    "",
+    ...recipients.map((item, index) => {
+      const target = item.telegramHandle ? `@${item.telegramHandle}` : item.phone || "Noma'lum";
+      const status = item.telegramChatId ? "bog'langan" : "ulanish kutilmoqda";
+      return `${index + 1}. ${item.label || target} | ${target} | ${status}`;
+    }),
+  ].join("\n");
+}
+
 export function formatAnalyticsForTelegram(summary) {
   return [
-    `${summary.period} analytics`,
+    `📊 ${summary.period} analitikasi`,
     "",
-    `Revenue: ${formatPrice(summary.revenue)} UZS`,
-    `Bookings: ${summary.bookingCount}`,
-    `Room occupancy: ${summary.roomOccupancyRate}%`,
-    `Tapchan utilization: ${summary.tapchanUtilizationRate}%`,
-    `Cancellation rate: ${summary.cancellationRate}%`,
-    `Unused capacity: ${summary.unusedCapacity}`,
-    `Sources: ${Object.entries(summary.bookingSources).map(([key, value]) => `${key} ${value}`).join(", ") || "none"}`,
-    summary.issues.length > 0 ? `Issues: ${summary.issues.join("; ")}` : "Issues: none",
-    summary.insights.length > 0 ? `Insights: ${summary.insights.join("; ")}` : "Insights: no optimization alerts",
+    `💰 Tushum: ${formatPrice(summary.revenue)} UZS`,
+    `📚 Bronlar: ${summary.bookingCount}`,
+    `🛏 Xona bandligi: ${summary.roomOccupancyRate}%`,
+    `🪑 Tapchan bandligi: ${summary.tapchanUtilizationRate}%`,
+    `❌ Bekor qilish darajasi: ${summary.cancellationRate}%`,
+    `📦 Ishlatilmagan sig'im: ${summary.unusedCapacity}`,
+    `🌐 Manbalar: ${Object.entries(summary.bookingSources).map(([key, value]) => `${key} ${value}`).join(", ") || "yo'q"}`,
+    summary.issues.length > 0 ? `⚠️ Muammolar: ${summary.issues.join("; ")}` : "⚠️ Muammolar: yo'q",
+    summary.insights.length > 0 ? `💡 Tavsiyalar: ${summary.insights.join("; ")}` : "💡 Tavsiyalar: hozircha yo'q",
   ].join("\n");
 }
 
 export function formatAvailabilityForTelegram(overview) {
   const lines = [
-    `Availability for ${overview.date}`,
+    `📍 ${overview.date} uchun bandlik`,
     "",
-    `Active resources: ${overview.activeResources}`,
-    `Available now: ${overview.availableNow}`,
-    `Booked now: ${overview.bookedNow}`,
-    `Upcoming bookings: ${overview.upcomingBookings}`,
+    `Faol resurslar: ${overview.activeResources}`,
+    `Hozir bo'sh: ${overview.availableNow}`,
+    `Hozir band: ${overview.bookedNow}`,
+    `Yaqin bronlar: ${overview.upcomingBookings}`,
     "",
   ];
 
   for (const resource of overview.resources.slice(0, 20)) {
     lines.push(
-      `${resource.name} - ${resource.is_active ? (resource.bookedNow ? "booked" : "free") : "disabled"} - capacity ${resource.capacity}`,
+      `${resource.name} - ${resource.is_active ? (resource.bookedNow ? "band" : "bo'sh") : "o'chirilgan"} - sig'im ${resource.capacity}`,
     );
   }
 

@@ -1,27 +1,27 @@
 import "dotenv/config";
 import { createTelegramClient, readEnv, readOptionalEnv } from "../src/bots/shared.js";
-import { formatAnalyticsForTelegram, getBusinessAnalytics, getSystemStatus } from "../src/services/businessOps.js";
+import { buildDailyReportMessage, getDailyReportRecipients } from "../src/services/businessOps.js";
 
 const token = readEnv("MANAGER_BOT_TOKEN");
-const ownerChatId = readOptionalEnv("OWNER_CHAT_ID", "CHAT_ID");
+const telegram = createTelegramClient(token);
+const recipients = await getDailyReportRecipients();
+const fallbackChatId = readOptionalEnv("OWNER_CHAT_ID", "CHAT_ID");
+const text = await buildDailyReportMessage();
 
-if (!ownerChatId) {
-  throw new Error("OWNER_CHAT_ID or CHAT_ID is required");
+if (recipients.length === 0 && !fallbackChatId) {
+  throw new Error("No linked report recipients and no OWNER_CHAT_ID fallback found.");
 }
 
-const telegram = createTelegramClient(token);
-const [analytics, systemStatus] = await Promise.all([
-  getBusinessAnalytics("today"),
-  getSystemStatus(),
-]);
+let sentCount = 0;
 
-const text = [
-  "Daily business summary",
-  "",
-  formatAnalyticsForTelegram(analytics),
-  "",
-  `System status: active ${systemStatus.activeResources}, pending ${systemStatus.pendingBookings}, awaiting confirmation ${systemStatus.awaitingConfirmation}`,
-].join("\n");
+for (const recipient of recipients) {
+  await telegram.sendMessage(recipient.telegramChatId, text);
+  sentCount += 1;
+}
 
-await telegram.sendMessage(ownerChatId, text);
-console.log("Daily report sent.");
+if (sentCount === 0 && fallbackChatId) {
+  await telegram.sendMessage(fallbackChatId, text);
+  sentCount += 1;
+}
+
+console.log(`Daily report sent to ${sentCount} recipient(s).`);
