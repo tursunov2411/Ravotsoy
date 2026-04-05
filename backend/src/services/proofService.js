@@ -584,6 +584,114 @@ export async function setBookingCompleted(bookingId) {
   return fetchBookingContext(normalizedBookingId);
 }
 
+export async function updateBookingFieldsManually(bookingId, values = {}) {
+  const normalizedBookingId = requireText(bookingId, "bookingId");
+  const payload = {};
+
+  if (Object.hasOwn(values, "name")) {
+    const normalizedName = String(values.name ?? "").trim();
+
+    if (!normalizedName) {
+      throw new Error("Mijoz ismi bo'sh bo'lmasligi kerak.");
+    }
+
+    payload.name = normalizedName;
+  }
+
+  if (Object.hasOwn(values, "phone")) {
+    const normalizedPhone = String(values.phone ?? "").trim();
+
+    if (!normalizedPhone) {
+      throw new Error("Telefon raqami bo'sh bo'lmasligi kerak.");
+    }
+
+    payload.phone = normalizedPhone;
+  }
+
+  if (Object.keys(payload).length === 0) {
+    throw new Error("Yangilash uchun maydon topilmadi.");
+  }
+
+  const { error } = await supabase
+    .from("bookings")
+    .update(payload)
+    .eq("id", normalizedBookingId);
+
+  if (error) {
+    throw error;
+  }
+
+  return fetchBookingContext(normalizedBookingId);
+}
+
+export async function completeBookingPaymentManually(bookingId, totalPrice) {
+  const normalizedBookingId = requireText(bookingId, "bookingId");
+  const normalizedTotalPrice = Number.parseInt(String(totalPrice ?? ""), 10);
+
+  if (!Number.isInteger(normalizedTotalPrice) || normalizedTotalPrice < 0) {
+    throw new Error("To'lov summasi 0 yoki undan katta butun son bo'lishi kerak.");
+  }
+
+  const booking = await fetchBookingRow(normalizedBookingId);
+
+  if (!booking) {
+    throw new Error("Bron topilmadi.");
+  }
+
+  if (["rejected", "cancelled", "completed"].includes(String(booking.status ?? ""))) {
+    throw new Error("Bu bron uchun to'lovni yopib bo'lmaydi.");
+  }
+
+  const { error: bookingError } = await supabase
+    .from("bookings")
+    .update({
+      total_price: normalizedTotalPrice,
+      estimated_price: normalizedTotalPrice,
+      payment_status: "paid",
+    })
+    .eq("id", normalizedBookingId);
+
+  if (bookingError) {
+    throw bookingError;
+  }
+
+  const { data: payment } = await supabase
+    .from("payments")
+    .select("id")
+    .eq("booking_id", normalizedBookingId)
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  if (payment?.id) {
+    const { error: paymentError } = await supabase
+      .from("payments")
+      .update({
+        amount: normalizedTotalPrice,
+        status: "verified",
+      })
+      .eq("id", payment.id);
+
+    if (paymentError) {
+      throw paymentError;
+    }
+  } else {
+    const { error: insertPaymentError } = await supabase
+      .from("payments")
+      .insert({
+        booking_id: normalizedBookingId,
+        amount: normalizedTotalPrice,
+        status: "verified",
+      });
+
+    if (insertPaymentError) {
+      throw insertPaymentError;
+    }
+  }
+
+  return fetchBookingContext(normalizedBookingId);
+}
+
 export async function updateBookingPriceManually(bookingId, totalPrice) {
   const normalizedBookingId = requireText(bookingId, "bookingId");
   const normalizedTotalPrice = Number.parseInt(String(totalPrice ?? ""), 10);

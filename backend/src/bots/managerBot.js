@@ -3,6 +3,7 @@ import {
   approveBookingManually,
   approveBookingProof,
   cancelBookingManually,
+  completeBookingPaymentManually,
   fetchBookingContext,
   loadLatestProofAsset,
   rejectBookingManually,
@@ -10,6 +11,7 @@ import {
   moveBookingDatesManually,
   setBookingCheckedIn,
   setBookingCompleted,
+  updateBookingFieldsManually,
   updateBookingPriceManually,
 } from "../services/proofService.js";
 import {
@@ -70,6 +72,10 @@ const ACTIONS = {
   bookingFree: "mbook_free_",
   bookingCheckIn: "mbook_checkin_",
   bookingLeft: "mbook_left_",
+  bookingPaymentDone: "mbook_paid_",
+  bookingEditMenu: "mbook_edit_",
+  bookingEditName: "mbook_edit_name_",
+  bookingEditPhone: "mbook_edit_phone_",
   bookingMoveDate: "mbook_move_",
   bookingPrice: "mbook_price_",
   pricing: "mpr_",
@@ -276,6 +282,65 @@ function buildBookingDetailKeyboard(booking) {
       { text: "💵 Narx o'zgardi", callback_data: `${ACTIONS.bookingPrice}${booking.id}` },
     ]);
     rows.push([{ text: "🔓 Joyni bo'shatish / bekor qilish", callback_data: `${ACTIONS.bookingFree}${booking.id}` }]);
+  }
+
+  rows.push([{ text: "📚 Bronlar ro'yxati", callback_data: `${ACTIONS.main}bookings` }]);
+  rows.push([{ text: "🔙 Orqaga", callback_data: ACTIONS.backMain }]);
+  return { inline_keyboard: rows };
+}
+
+function buildBookingEditKeyboard(booking) {
+  return {
+    inline_keyboard: [
+      [
+        { text: "👤 Ismni yozish", callback_data: `${ACTIONS.bookingEditName}${booking.id}` },
+        { text: "📞 Telefonni yozish", callback_data: `${ACTIONS.bookingEditPhone}${booking.id}` },
+      ],
+      [
+        { text: "📅 Sanani o'zgartirish", callback_data: `${ACTIONS.bookingMoveDate}${booking.id}` },
+        { text: "💵 Narxni o'zgartirish", callback_data: `${ACTIONS.bookingPrice}${booking.id}` },
+      ],
+      [{ text: "🧾 Bron tafsiloti", callback_data: `${ACTIONS.bookingDetail}${booking.id}` }],
+      [{ text: "🔙 Orqaga", callback_data: `${ACTIONS.main}bookings` }],
+    ],
+  };
+}
+
+function buildBookingDetailKeyboardV2(booking) {
+  const rows = [];
+  const isPending = booking.rawStatus === "pending" || booking.rawStatus === "proof_submitted";
+  const isConfirmed = booking.rawStatus === "confirmed";
+  const isCheckedIn = booking.rawStatus === "checked_in";
+  const isClosed = ["rejected", "cancelled", "completed"].includes(booking.rawStatus);
+
+  if (booking.hasProof) {
+    rows.push([{ text: "🧾 Chekni ko'rish", callback_data: `${ACTIONS.view}${booking.id}` }]);
+  }
+
+  if (isPending) {
+    rows.push([
+      { text: "✅ Tasdiqlash", callback_data: `${ACTIONS.approve}${booking.id}` },
+      { text: "❌ O'chirish / rad etish", callback_data: `${ACTIONS.reject}${booking.id}` },
+    ]);
+  }
+
+  if (isConfirmed) {
+    rows.push([
+      { text: "🏁 Mehmon check-in qildi", callback_data: `${ACTIONS.bookingCheckIn}${booking.id}` },
+      { text: "💳 To'lov yakunlandi", callback_data: `${ACTIONS.bookingPaymentDone}${booking.id}` },
+    ]);
+  }
+
+  if (isCheckedIn) {
+    rows.push([
+      { text: "💳 To'lov yakunlandi", callback_data: `${ACTIONS.bookingPaymentDone}${booking.id}` },
+      { text: "👋 Mehmon ketdi", callback_data: `${ACTIONS.bookingLeft}${booking.id}` },
+    ]);
+  }
+
+  if (!isClosed) {
+    rows.push([{ text: "✍️ Tahrirlash", callback_data: `${ACTIONS.bookingEditMenu}${booking.id}` }]);
+    rows.push([{ text: "🗑 Joyni bo'shatish / bekor qilish", callback_data: `${ACTIONS.bookingFree}${booking.id}` }]);
   }
 
   rows.push([{ text: "📚 Bronlar ro'yxati", callback_data: `${ACTIONS.main}bookings` }]);
@@ -561,6 +626,42 @@ function formatBookingDetail(booking) {
   ].filter(Boolean).join("\n");
 }
 
+function formatPaymentStatusLabel(status) {
+  if (status === "paid") {
+    return "to'liq yopilgan";
+  }
+
+  if (status === "pending_verification") {
+    return "tekshiruvda";
+  }
+
+  if (status === "failed") {
+    return "muammo bor";
+  }
+
+  return "kutilmoqda";
+}
+
+function formatBookingDetailV2(booking) {
+  return [
+    "🧾 Bron tafsilotlari",
+    "",
+    `ID: ${booking.id}`,
+    `Mijoz: ${booking.name || "Ko'rsatilmagan"}`,
+    `Telefon: ${booking.phone || "Ko'rsatilmagan"}`,
+    `Tanlov: ${booking.bookingLabel}`,
+    `Holat: ${booking.statusLabel || booking.trackingStatus}`,
+    `To'lov holati: ${formatPaymentStatusLabel(booking.paymentStatus)}`,
+    `Manba: ${booking.source}`,
+    `Sana: ${booking.dateStart}${booking.dateEnd ? ` - ${booking.dateEnd}` : ""}`,
+    `Boshlang'ich to'lov: ${formatPrice(booking.initialPayment ?? 0)} UZS`,
+    `Yakuniy summa: ${formatPrice(booking.totalPrice)} UZS`,
+    `Qoldiq: ${formatPrice(booking.remainingPayment ?? 0)} UZS`,
+    `Chek: ${booking.proofUrl ? "bor" : "yo'q"}`,
+    booking.proofUrl ? `Chek havolasi: ${booking.proofUrl}` : "",
+  ].filter(Boolean).join("\n");
+}
+
 function formatPaymentSettings(settings) {
   return [
     "💳 To'lov sozlamalari",
@@ -820,6 +921,11 @@ export function createManagerBot() {
     }
 
     const booking = context.booking;
+    const initialPayment = Number(context.payment?.amount ?? 0);
+    const totalPrice = Number(booking.total_price ?? 0);
+    const remainingPayment = booking.payment_status === "paid"
+      ? 0
+      : Math.max(totalPrice - initialPayment, 0);
     const detail = {
       id: booking.id,
       rawStatus: booking.status,
@@ -850,14 +956,40 @@ export function createManagerBot() {
       paymentStatus: booking.payment_status,
       proofUrl: context.payment?.proof_url || "",
       hasProof: Boolean(context.payment?.proof_url),
+      initialPayment,
+      remainingPayment,
       source: booking.source,
       dateStart: booking.date_start,
       dateEnd: booking.date_end,
-      totalPrice: booking.total_price,
+      totalPrice,
     };
 
-    await sendManagerMessage(chatId, formatBookingDetail(detail), {
-      reply_markup: buildBookingDetailKeyboard(detail),
+    await sendManagerMessage(chatId, formatBookingDetailV2(detail), {
+      reply_markup: buildBookingDetailKeyboardV2(detail),
+    });
+  }
+
+  async function showBookingEditMenu(chatId, bookingId) {
+    const context = await fetchBookingContext(bookingId);
+
+    if (!context?.booking) {
+      await sendManagerMessage(chatId, "❌ Bron topilmadi.", {
+        reply_markup: buildMainKeyboard(),
+      });
+      return;
+    }
+
+    const booking = context.booking;
+    await sendManagerMessage(chatId, [
+      "✍️ Bron tahrirlash",
+      "",
+      `Tanlov: ${booking.booking_label || booking.resource_summary || "Ko'rsatilmagan"}`,
+      `Mijoz: ${booking.name || "Ko'rsatilmagan"}`,
+      `Telefon: ${booking.phone || "Ko'rsatilmagan"}`,
+      "",
+      "Pastdagi tugmadan o'zgartiriladigan maydonni tanlang.",
+    ].join("\n"), {
+      reply_markup: buildBookingEditKeyboard({ id: booking.id }),
     });
   }
 
@@ -1089,6 +1221,28 @@ export function createManagerBot() {
         return true;
       }
 
+      if (data.startsWith(ACTIONS.bookingEditMenu)) {
+        await answerCallbackQuery(callbackQueryId, "Bron tahrirlash");
+        await showBookingEditMenu(chatId, data.slice(ACTIONS.bookingEditMenu.length));
+        return true;
+      }
+
+      if (data.startsWith(ACTIONS.bookingEditName)) {
+        const bookingId = data.slice(ACTIONS.bookingEditName.length);
+        pendingBookingEdits.set(chatId, { type: "name", bookingId });
+        await answerCallbackQuery(callbackQueryId, "Yangi ismni yuboring");
+        await sendManagerMessage(chatId, "👤 Mijozning yangi ismini yuboring.");
+        return true;
+      }
+
+      if (data.startsWith(ACTIONS.bookingEditPhone)) {
+        const bookingId = data.slice(ACTIONS.bookingEditPhone.length);
+        pendingBookingEdits.set(chatId, { type: "phone", bookingId });
+        await answerCallbackQuery(callbackQueryId, "Yangi telefonni yuboring");
+        await sendManagerMessage(chatId, "📞 Mijozning yangi telefon raqamini yuboring.");
+        return true;
+      }
+
       if (data.startsWith(ACTIONS.bookingFree)) {
         const bookingId = data.slice(ACTIONS.bookingFree.length);
         await cancelBookingManually(bookingId);
@@ -1105,8 +1259,46 @@ export function createManagerBot() {
         return true;
       }
 
+      if (data.startsWith(ACTIONS.bookingPaymentDone)) {
+        const bookingId = data.slice(ACTIONS.bookingPaymentDone.length);
+        const context = await fetchBookingContext(bookingId);
+
+        if (!context?.booking) {
+          await answerCallbackQuery(callbackQueryId, "Bron topilmadi");
+          return true;
+        }
+
+        pendingBookingEdits.set(chatId, { type: "paymentComplete", bookingId });
+        await answerCallbackQuery(callbackQueryId, "Yakuniy summani yuboring");
+        await sendManagerMessage(chatId, [
+          "💳 To'lovni yakunlash",
+          "",
+          `Boshlang'ich to'lov: ${formatPrice(context.payment?.amount ?? 0)} UZS`,
+          `Hozirgi yakuniy summa: ${formatPrice(context.booking.total_price ?? 0)} UZS`,
+          "",
+          "Yangi yakuniy summani yuboring.",
+          "Agar umuman to'lov olinmagan bo'lsa, `0` yuborishingiz mumkin.",
+        ].join("\n"), {
+          parse_mode: "Markdown",
+        });
+        return true;
+      }
+
       if (data.startsWith(ACTIONS.bookingLeft)) {
         const bookingId = data.slice(ACTIONS.bookingLeft.length);
+        const context = await fetchBookingContext(bookingId);
+
+        if (!context?.booking) {
+          await answerCallbackQuery(callbackQueryId, "Bron topilmadi");
+          return true;
+        }
+
+        if (context.booking.payment_status !== "paid") {
+          await answerCallbackQuery(callbackQueryId, "Avval to'lovni yakunlang");
+          await sendManagerMessage(chatId, "💳 Mehmonni chiqarishdan oldin `To'lov yakunlandi` tugmasi orqali yakuniy summani kiriting. Agar to'lov olinmagan bo'lsa, `0` kiritsangiz bo'ladi.");
+          return true;
+        }
+
         await setBookingCompleted(bookingId);
         await answerCallbackQuery(callbackQueryId, "Mehmon ketdi");
         await showBookingDetail(chatId, bookingId);
@@ -1609,6 +1801,32 @@ export function createManagerBot() {
 
         if (pendingBookingEdit) {
           try {
+            if (pendingBookingEdit.type === "name") {
+              if (!text) {
+                await sendManagerMessage(chatId, "⚠️ Ism bo'sh bo'lmasligi kerak.");
+                return;
+              }
+
+              pendingBookingEdits.delete(chatId);
+              await updateBookingFieldsManually(pendingBookingEdit.bookingId, { name: text });
+              await sendManagerMessage(chatId, "✅ Mijoz ismi yangilandi.");
+              await showBookingDetail(chatId, pendingBookingEdit.bookingId);
+              return;
+            }
+
+            if (pendingBookingEdit.type === "phone") {
+              if (!text) {
+                await sendManagerMessage(chatId, "⚠️ Telefon bo'sh bo'lmasligi kerak.");
+                return;
+              }
+
+              pendingBookingEdits.delete(chatId);
+              await updateBookingFieldsManually(pendingBookingEdit.bookingId, { phone: text });
+              await sendManagerMessage(chatId, "✅ Telefon raqami yangilandi.");
+              await showBookingDetail(chatId, pendingBookingEdit.bookingId);
+              return;
+            }
+
             if (pendingBookingEdit.type === "price") {
               const numericPrice = Number.parseInt(text.replace(/[^\d]/g, ""), 10);
 
@@ -1622,6 +1840,23 @@ export function createManagerBot() {
               pendingBookingEdits.delete(chatId);
               await updateBookingPriceManually(pendingBookingEdit.bookingId, numericPrice);
               await sendManagerMessage(chatId, "✅ Bron narxi yangilandi.");
+              await showBookingDetail(chatId, pendingBookingEdit.bookingId);
+              return;
+            }
+
+            if (pendingBookingEdit.type === "paymentComplete") {
+              const numericPrice = Number.parseInt(text.replace(/[^\d]/g, ""), 10);
+
+              if (!Number.isInteger(numericPrice) || numericPrice < 0) {
+                await sendManagerMessage(chatId, "⚠️ Yakuniy summani butun son bilan yuboring. Agar to'lov bo'lmagan bo'lsa `0` yuboring.", {
+                  parse_mode: "Markdown",
+                });
+                return;
+              }
+
+              pendingBookingEdits.delete(chatId);
+              await completeBookingPaymentManually(pendingBookingEdit.bookingId, numericPrice);
+              await sendManagerMessage(chatId, "✅ To'lov yakunlandi va bron summasi yangilandi.");
               await showBookingDetail(chatId, pendingBookingEdit.bookingId);
               return;
             }

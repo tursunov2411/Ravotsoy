@@ -4,9 +4,14 @@ import { createTelegramClient, formatAxiosError, readOptionalEnv } from "../bots
 const managerToken = readOptionalEnv("MANAGER_BOT_TOKEN");
 const customerToken = readOptionalEnv("CUSTOMER_BOT_TOKEN", "BOT_TOKEN");
 const managerChatId = readOptionalEnv("CHAT_ID");
+const ownerGroupChatId = readOptionalEnv("OWNER_GROUP_CHAT_ID");
 const managerTelegram = managerToken && managerChatId ? createTelegramClient(managerToken) : null;
 const customerTelegram = customerToken ? createTelegramClient(customerToken) : null;
 const supabase = createSupabasePrivilegedClient();
+
+function getManagerNotificationTargets() {
+  return Array.from(new Set([managerChatId, ownerGroupChatId].map((item) => String(item ?? "").trim()).filter(Boolean)));
+}
 
 function formatDates(booking) {
   if (booking.date_start && booking.date_end) {
@@ -92,9 +97,14 @@ export async function notifyManagerAboutBooking(booking) {
       `Narx: ${formatPrice(booking.total_price)} so'm`,
     ];
 
-    await managerTelegram.sendMessage(managerChatId, lines.join("\n"), {
-      reply_markup: buildManagerDecisionKeyboard(booking.id),
-    });
+    const targets = getManagerNotificationTargets();
+
+    for (const targetChatId of targets) {
+      await managerTelegram.sendMessage(targetChatId, lines.join("\n"), {
+        reply_markup: targetChatId === managerChatId ? buildManagerDecisionKeyboard(booking.id) : undefined,
+      });
+    }
+
     await updateNotificationState(booking.id, {
       manager_booking_notified_at: new Date().toISOString(),
     });
@@ -137,6 +147,14 @@ export async function notifyManagerAboutProof(context) {
     const response = await managerTelegram.sendMessage(managerChatId, lines.join("\n"), {
       reply_markup: buildManagerDecisionKeyboard(booking.id),
     });
+
+    for (const targetChatId of getManagerNotificationTargets()) {
+      if (targetChatId === managerChatId) {
+        continue;
+      }
+
+      await managerTelegram.sendMessage(targetChatId, lines.join("\n"));
+    }
 
     const result = response?.result ?? null;
     await updateNotificationState(booking.id, {
