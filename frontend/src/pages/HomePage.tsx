@@ -299,6 +299,9 @@ export function HomePage() {
     if (section.section_type === "faq") {
       const faqItems = parseFaqItems(section.content.items);
       const ctaLabel = String(section.content.cta_label ?? "Boshqa savolingiz bormi? Telegramdan so'rang").trim();
+      const hasCustomCtaUrl = typeof section.content.cta_url === "string";
+      const ctaUrl = hasCustomCtaUrl ? String(section.content.cta_url ?? "").trim() : telegramLink;
+      const showCta = hasCustomCtaUrl ? ctaUrl.length > 0 : Boolean(ctaLabel);
 
       return (
         <AnimatedSection key={section.id} className="mt-16">
@@ -349,10 +352,10 @@ export function HomePage() {
               )}
             </div>
 
-            {ctaLabel ? (
+            {ctaLabel && showCta ? (
               <div className="mt-8">
                 <a
-                  href={telegramLink}
+                  href={ctaUrl}
                   target="_blank"
                   rel="noreferrer"
                   className="inline-flex items-center gap-2 rounded-full bg-ink px-6 py-3 text-sm font-medium text-white transition hover:bg-pine"

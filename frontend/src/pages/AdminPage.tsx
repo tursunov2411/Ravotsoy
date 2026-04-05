@@ -173,6 +173,7 @@ function createSection(type: ContentSectionType, sortOrder: number): Omit<Conten
         ? {
             items: createDefaultFaqItems(),
             cta_label: "Boshqa savolingiz bormi? Telegramdan so'rang",
+            cta_url: "",
           }
         : type === "sightseeing"
           ? { places: [createSightseeingPlace(), createSightseeingPlace()] }
@@ -248,6 +249,11 @@ function readFaqItems(section: ContentSection): FaqItem[] {
 
 function readFaqCtaLabel(section: ContentSection) {
   return String(section.content.cta_label ?? "");
+}
+
+function readFaqCtaUrl(section: ContentSection) {
+  const value = section.content.cta_url;
+  return typeof value === "string" ? value : "";
 }
 
 function statusLabel(status: BookingRecord["status"]) {
@@ -337,7 +343,7 @@ function iconButtonClassName() {
 }
 
 type AdminNavItem = {
-  id: string;
+  id: "overview" | "settings" | "media" | "homepage" | "packages" | "bookings";
   label: string;
   icon: typeof House;
   hint: string;
@@ -683,63 +689,19 @@ export function AdminPage() {
     () => [...homeSections].sort((left, right) => left.sort_order - right.sort_order),
     [homeSections],
   );
-  const [activeAdminSection, setActiveAdminSection] = useState("overview");
+  const [activeAdminSection, setActiveAdminSection] = useState<AdminNavItem["id"]>("overview");
 
   const adminNavItems = useMemo<AdminNavItem[]>(
     () => [
       { id: "overview", label: "Dashboard", icon: House, hint: "Umumiy ko'rinish" },
       { id: "settings", label: "Sozlamalar", icon: Settings2, hint: "Sayt matnlari va kontaktlar" },
-      { id: "media-upload", label: "Yuklash", icon: Upload, hint: "Yangi media qo'shish" },
-      { id: "homepage-sections", label: "Homepage", icon: PanelsTopLeft, hint: "Bosh sahifa bloklari" },
-      { id: "media-library", label: "Kutubxona", icon: ImageIcon, hint: "Yuklangan fayllar" },
-      { id: "package-editor", label: "Paket form", icon: Boxes, hint: "Yaratish va tahrirlash" },
-      { id: "package-list", label: "Paketlar", icon: GripVertical, hint: "Mavjud paketlar" },
+      { id: "media", label: "Media", icon: Upload, hint: "Yuklash va kutubxona" },
+      { id: "homepage", label: "Homepage", icon: PanelsTopLeft, hint: "Bosh sahifa bloklari" },
+      { id: "packages", label: "Paketlar", icon: Boxes, hint: "Yaratish va tahrirlash" },
       { id: "bookings", label: "Bronlar", icon: CalendarRange, hint: "So'rovlar va holatlar" },
-      { id: "quick-view", label: "Hisobot", icon: ShieldCheck, hint: "Tezkor statistika" },
     ],
     [],
   );
-
-  useEffect(() => {
-    const elements = adminNavItems
-      .map((item) => document.getElementById(item.id))
-      .filter((item): item is HTMLElement => Boolean(item));
-
-    if (elements.length === 0) {
-      return;
-    }
-
-    const observer = new IntersectionObserver(
-      (entries) => {
-        const visible = entries
-          .filter((entry) => entry.isIntersecting)
-          .sort((left, right) => right.intersectionRatio - left.intersectionRatio)[0];
-
-        if (visible?.target.id) {
-          setActiveAdminSection(visible.target.id);
-        }
-      },
-      {
-        rootMargin: "-20% 0px -60% 0px",
-        threshold: [0.2, 0.45, 0.7],
-      },
-    );
-
-    elements.forEach((element) => observer.observe(element));
-
-    return () => observer.disconnect();
-  }, [adminNavItems]);
-
-  const scrollToAdminSection = (sectionId: string) => {
-    const element = document.getElementById(sectionId);
-
-    if (!element) {
-      return;
-    }
-
-    setActiveAdminSection(sectionId);
-    element.scrollIntoView({ behavior: "smooth", block: "start" });
-  };
 
   if (!hasSupabaseConfig) {
     return (
@@ -863,7 +825,7 @@ export function AdminPage() {
                   <button
                     key={item.id}
                     type="button"
-                    onClick={() => scrollToAdminSection(item.id)}
+                    onClick={() => setActiveAdminSection(item.id)}
                     className={cn(
                       "flex min-w-[220px] items-start gap-3 rounded-[24px] border px-4 py-4 text-left transition xl:min-w-0",
                       isActive
@@ -893,7 +855,49 @@ export function AdminPage() {
         </aside>
 
         <div className="min-w-0">
-      <div className="grid gap-6 xl:grid-cols-[1.05fr_0.95fr]">
+      {activeAdminSection === "overview" ? (
+        <div className="grid gap-6 xl:grid-cols-[1.08fr_0.92fr]">
+          <SectionCard
+            title="Boshqaruv markazi"
+            description="Kerakli menyuni chap sidebar orqali tanlang. Har panel faqat kerakli funksiyalarni ko'rsatadi."
+          >
+            <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+              <StatCard icon={<Boxes size={20} />} label="Paketlar" value={packages.length} hint="Faol paketlar soni" />
+              <StatCard icon={<Clock3 size={20} />} label="Kutilmoqda" value={pendingCount} hint="Yangi bronlar" />
+              <StatCard icon={<Check size={20} />} label="Tasdiqlangan" value={approvedCount} hint="Yopilgan so'rovlar" />
+              <StatCard icon={<ImageIcon size={20} />} label="Media" value={media.length} hint="Barcha yuklangan fayllar" />
+            </div>
+          </SectionCard>
+
+          <SectionCard
+            title="So'nggi bronlar"
+            description="Oxirgi tushgan bronlar va ularning hozirgi holati."
+          >
+            <div className="grid gap-3">
+              {recentBookings.length > 0 ? (
+                recentBookings.map((booking) => (
+                  <div key={booking.id} className="rounded-[24px] border border-black/6 bg-pearl/70 p-4">
+                    <div className="flex items-center justify-between gap-3">
+                      <p className="font-medium text-ink">{booking.name}</p>
+                      <span className="text-xs text-ink/45">{statusLabel(booking.status)}</span>
+                    </div>
+                    <p className="mt-2 text-sm text-ink/60">{booking.package_name || booking.package_id}</p>
+                    <p className="mt-1 text-xs text-ink/45">{formatBookingDates(booking)}</p>
+                  </div>
+                ))
+              ) : (
+                <div className="rounded-[24px] border border-dashed border-black/10 bg-pearl/60 p-6 text-sm text-ink/58">
+                  Hozircha yangi bronlar yo'q.
+                </div>
+              )}
+            </div>
+          </SectionCard>
+        </div>
+      ) : null}
+
+      {activeAdminSection === "settings" || activeAdminSection === "media" ? (
+      <div className={cn("grid gap-6", activeAdminSection === "media" ? "xl:grid-cols-[1.02fr_0.98fr]" : "grid-cols-1")}>
+        {activeAdminSection === "settings" ? (
         <section id="settings" className="scroll-mt-28">
         <SectionCard
           title="Sayt sozlamalari"
@@ -1202,7 +1206,9 @@ export function AdminPage() {
           </form>
         </SectionCard>
         </section>
+        ) : null}
 
+        {activeAdminSection === "media" ? (
         <section id="media-upload" className="scroll-mt-28">
         <SectionCard
           title="Media boshqaruvi"
@@ -1301,9 +1307,13 @@ export function AdminPage() {
           </form>
         </SectionCard>
         </section>
+        ) : null}
       </div>
+      ) : null}
 
-      <div className="mt-6 grid gap-6 xl:grid-cols-[1.02fr_0.98fr]">
+      {activeAdminSection === "homepage" || activeAdminSection === "media" ? (
+      <div className={cn("mt-6 grid gap-6", activeAdminSection === "media" ? "xl:grid-cols-[1.02fr_0.98fr]" : "grid-cols-1")}>
+        {activeAdminSection === "homepage" ? (
         <section id="homepage-sections" className="scroll-mt-28">
         <SectionCard
           title="Bosh sahifa bo'limlari"
@@ -1592,23 +1602,62 @@ export function AdminPage() {
                       </div>
 
                       <div className="mt-4">
-                        <label className="space-y-2 text-sm text-ink/70">
-                          <span>CTA tugma matni</span>
-                          <input
-                            value={readFaqCtaLabel(section)}
-                            onChange={(event) =>
-                              updateSectionState(section.id, (current) => ({
-                                ...current,
-                                content: {
-                                  ...current.content,
-                                  cta_label: event.target.value,
-                                },
-                              }))
-                            }
-                            placeholder="Boshqa savolingiz bormi? Telegramdan so'rang"
-                            className={inputClassName()}
-                          />
-                        </label>
+                        <div className="grid gap-4 lg:grid-cols-[1fr_1fr_auto]">
+                          <label className="space-y-2 text-sm text-ink/70">
+                            <span>CTA tugma matni</span>
+                            <input
+                              value={readFaqCtaLabel(section)}
+                              onChange={(event) =>
+                                updateSectionState(section.id, (current) => ({
+                                  ...current,
+                                  content: {
+                                    ...current.content,
+                                    cta_label: event.target.value,
+                                  },
+                                }))
+                              }
+                              placeholder="Boshqa savolingiz bormi? Telegramdan so'rang"
+                              className={inputClassName()}
+                            />
+                          </label>
+
+                          <label className="space-y-2 text-sm text-ink/70">
+                            <span>Redirect URL</span>
+                            <input
+                              type="url"
+                              value={readFaqCtaUrl(section)}
+                              onChange={(event) =>
+                                updateSectionState(section.id, (current) => ({
+                                  ...current,
+                                  content: {
+                                    ...current.content,
+                                    cta_url: event.target.value,
+                                  },
+                                }))
+                              }
+                              placeholder="https://t.me/..."
+                              className={inputClassName()}
+                            />
+                          </label>
+
+                          <div className="flex items-end">
+                            <button
+                              type="button"
+                              onClick={() =>
+                                updateSectionState(section.id, (current) => ({
+                                  ...current,
+                                  content: {
+                                    ...current.content,
+                                    cta_url: "",
+                                  },
+                                }))
+                              }
+                              className="inline-flex w-full items-center justify-center rounded-full border border-red-200 px-4 py-3 text-sm font-medium text-red-700 transition hover:bg-red-50"
+                            >
+                              URL olib tashlash
+                            </button>
+                          </div>
+                        </div>
                       </div>
 
                       <div className="mt-4 grid gap-4">
@@ -1755,7 +1804,9 @@ export function AdminPage() {
           </div>
         </SectionCard>
         </section>
+        ) : null}
 
+        {activeAdminSection === "media" ? (
         <section id="media-library" className="scroll-mt-28">
         <SectionCard
           title="Yuklangan media"
@@ -1806,8 +1857,11 @@ export function AdminPage() {
           </div>
         </SectionCard>
         </section>
+        ) : null}
       </div>
+      ) : null}
 
+      {activeAdminSection === "packages" ? (
       <div className="mt-6 grid gap-6 xl:grid-cols-[1.04fr_0.96fr]">
         <section id="package-editor" className="scroll-mt-28">
         <SectionCard
@@ -1981,6 +2035,7 @@ export function AdminPage() {
                     <button
                       type="button"
                       onClick={() => {
+                        setActiveAdminSection("packages");
                         setEditingPackageId(item.id);
                         setPackageForm({
                           name: item.name,
@@ -2033,7 +2088,9 @@ export function AdminPage() {
         </SectionCard>
         </section>
       </div>
+      ) : null}
 
+      {activeAdminSection === "bookings" ? (
       <div className="mt-6 grid gap-6 xl:grid-cols-[1.08fr_0.92fr]">
         <section id="bookings" className="scroll-mt-28">
         <SectionCard
@@ -2178,6 +2235,7 @@ export function AdminPage() {
         </SectionCard>
         </section>
       </div>
+      ) : null}
         </div>
       </div>
     </div>
