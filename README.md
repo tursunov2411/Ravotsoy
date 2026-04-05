@@ -1,4 +1,4 @@
-# Ravotsoy Dam olish Maskani
+# Ravotsoy Dam Olish Maskani
 
 Ushbu loyiha turizm biznesi uchun React + Vite + TypeScript + TailwindCSS frontend, Supabase backend va Telegram integratsiyasi uchun Node.js script bilan tayyorlangan.
 
@@ -89,6 +89,7 @@ Tartib bilan quyidagilarni ishlating:
 1. `backend/supabase/migrations/20260405_init_ravotsoy.sql`
 2. `backend/supabase/migrations/20260405_align_requested_schema.sql`
 3. `backend/supabase/migrations/3_create_booking_telegram_webhook.sql`
+4. `backend/supabase/migrations/4_create_package_images_bucket.sql`
 
 ### 2. Uchinchi SQL faylda almashtiriladigan qiymatlar
 
