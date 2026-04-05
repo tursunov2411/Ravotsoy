@@ -166,6 +166,12 @@ export function Layout() {
             <Button to="/bron" variant="secondary" className="w-full sm:w-auto">
               Bron qilish
             </Button>
+            <NavLink
+              to="/admin-login"
+              className="inline-flex items-center justify-center rounded-full border border-black/10 px-5 py-3 text-sm font-medium text-ink transition hover:bg-white"
+            >
+              Admin login
+            </NavLink>
           </div>
         </div>
       </footer>

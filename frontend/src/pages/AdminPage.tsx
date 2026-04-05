@@ -7,13 +7,16 @@ import {
   Check,
   Clock3,
   GripVertical,
+  House,
   Image as ImageIcon,
   LoaderCircle,
   LogOut,
   MessageCircleMore,
+  PanelsTopLeft,
   Pencil,
   Phone,
   Plus,
+  Settings2,
   Save,
   ShieldCheck,
   Trash2,
@@ -332,6 +335,13 @@ function textareaClassName() {
 function iconButtonClassName() {
   return "inline-flex h-10 w-10 items-center justify-center rounded-full border border-black/10 bg-white text-ink transition hover:bg-pearl";
 }
+
+type AdminNavItem = {
+  id: string;
+  label: string;
+  icon: typeof House;
+  hint: string;
+};
 
 export function AdminPage() {
   const navigate = useNavigate();
@@ -673,6 +683,63 @@ export function AdminPage() {
     () => [...homeSections].sort((left, right) => left.sort_order - right.sort_order),
     [homeSections],
   );
+  const [activeAdminSection, setActiveAdminSection] = useState("overview");
+
+  const adminNavItems = useMemo<AdminNavItem[]>(
+    () => [
+      { id: "overview", label: "Dashboard", icon: House, hint: "Umumiy ko'rinish" },
+      { id: "settings", label: "Sozlamalar", icon: Settings2, hint: "Sayt matnlari va kontaktlar" },
+      { id: "media-upload", label: "Yuklash", icon: Upload, hint: "Yangi media qo'shish" },
+      { id: "homepage-sections", label: "Homepage", icon: PanelsTopLeft, hint: "Bosh sahifa bloklari" },
+      { id: "media-library", label: "Kutubxona", icon: ImageIcon, hint: "Yuklangan fayllar" },
+      { id: "package-editor", label: "Paket form", icon: Boxes, hint: "Yaratish va tahrirlash" },
+      { id: "package-list", label: "Paketlar", icon: GripVertical, hint: "Mavjud paketlar" },
+      { id: "bookings", label: "Bronlar", icon: CalendarRange, hint: "So'rovlar va holatlar" },
+      { id: "quick-view", label: "Hisobot", icon: ShieldCheck, hint: "Tezkor statistika" },
+    ],
+    [],
+  );
+
+  useEffect(() => {
+    const elements = adminNavItems
+      .map((item) => document.getElementById(item.id))
+      .filter((item): item is HTMLElement => Boolean(item));
+
+    if (elements.length === 0) {
+      return;
+    }
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        const visible = entries
+          .filter((entry) => entry.isIntersecting)
+          .sort((left, right) => right.intersectionRatio - left.intersectionRatio)[0];
+
+        if (visible?.target.id) {
+          setActiveAdminSection(visible.target.id);
+        }
+      },
+      {
+        rootMargin: "-20% 0px -60% 0px",
+        threshold: [0.2, 0.45, 0.7],
+      },
+    );
+
+    elements.forEach((element) => observer.observe(element));
+
+    return () => observer.disconnect();
+  }, [adminNavItems]);
+
+  const scrollToAdminSection = (sectionId: string) => {
+    const element = document.getElementById(sectionId);
+
+    if (!element) {
+      return;
+    }
+
+    setActiveAdminSection(sectionId);
+    element.scrollIntoView({ behavior: "smooth", block: "start" });
+  };
 
   if (!hasSupabaseConfig) {
     return (
@@ -711,7 +778,10 @@ export function AdminPage() {
 
   return (
     <div className="mx-auto max-w-7xl px-4 py-10 sm:px-6 lg:px-8">
-      <section className="rounded-[40px] bg-[#07111f] px-6 py-8 text-white shadow-[0_24px_80px_rgba(15,23,42,0.18)] sm:px-8 lg:px-10">
+      <section
+        id="overview"
+        className="scroll-mt-28 rounded-[40px] bg-[#07111f] px-6 py-8 text-white shadow-[0_24px_80px_rgba(15,23,42,0.18)] sm:px-8 lg:px-10"
+      >
         <div className="relative overflow-hidden rounded-[32px] border border-white/10 bg-[linear-gradient(135deg,#09111f_0%,#0d1b33_48%,#143261_100%)] p-8">
           <div className="absolute inset-0 bg-[linear-gradient(to_right,#ffffff10_1px,transparent_1px),linear-gradient(to_bottom,#ffffff08_1px,transparent_1px)] bg-[size:66px_66px]" />
           <div className="absolute left-[-8%] top-[-18%] h-72 w-72 rounded-full bg-sky-500/20 blur-3xl" />
@@ -775,7 +845,56 @@ export function AdminPage() {
         </div>
       ) : null}
 
-      <div className="mt-6 grid gap-6 xl:grid-cols-[1.05fr_0.95fr]">
+      <div className="mt-6 grid gap-6 xl:grid-cols-[260px_minmax(0,1fr)]">
+        <aside className="xl:sticky xl:top-24 xl:self-start">
+          <div className="rounded-[32px] border border-black/5 bg-white p-5 shadow-soft">
+            <p className="text-xs uppercase tracking-[0.26em] text-ink/35">Navigatsiya</p>
+            <h2 className="mt-3 text-xl font-semibold tracking-tight text-ink">Admin bo'limlari</h2>
+            <p className="mt-2 text-sm leading-6 text-ink/58">
+              Kerakli bo'limga tez o'ting va saqlash jarayonini yo'qotmasdan ishlang.
+            </p>
+
+            <div className="mt-5 flex gap-3 overflow-x-auto pb-1 xl:flex-col xl:overflow-visible xl:pb-0">
+              {adminNavItems.map((item) => {
+                const Icon = item.icon;
+                const isActive = activeAdminSection === item.id;
+
+                return (
+                  <button
+                    key={item.id}
+                    type="button"
+                    onClick={() => scrollToAdminSection(item.id)}
+                    className={cn(
+                      "flex min-w-[220px] items-start gap-3 rounded-[24px] border px-4 py-4 text-left transition xl:min-w-0",
+                      isActive
+                        ? "border-ink bg-ink text-white shadow-[0_20px_40px_rgba(15,23,42,0.14)]"
+                        : "border-black/6 bg-pearl/70 text-ink hover:bg-white",
+                    )}
+                  >
+                    <span
+                      className={cn(
+                        "inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl",
+                        isActive ? "bg-white/12 text-white" : "bg-white text-ink",
+                      )}
+                    >
+                      <Icon size={18} />
+                    </span>
+                    <span className="min-w-0">
+                      <span className="block text-sm font-semibold">{item.label}</span>
+                      <span className={cn("mt-1 block text-xs leading-5", isActive ? "text-white/72" : "text-ink/48")}>
+                        {item.hint}
+                      </span>
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        </aside>
+
+        <div className="min-w-0">
+      <div className="grid gap-6 xl:grid-cols-[1.05fr_0.95fr]">
+        <section id="settings" className="scroll-mt-28">
         <SectionCard
           title="Sayt sozlamalari"
           description="Asosiy public kontent, hero slayder tartibi, joylashuv va xodimlar kontaktlarini shu yerdan boshqaring."
@@ -1082,7 +1201,9 @@ export function AdminPage() {
             </button>
           </form>
         </SectionCard>
+        </section>
 
+        <section id="media-upload" className="scroll-mt-28">
         <SectionCard
           title="Media boshqaruvi"
           description="Hero, galereya va paket rasmlarini shu yerdan yuklang va o'chiring."
@@ -1179,9 +1300,11 @@ export function AdminPage() {
             </button>
           </form>
         </SectionCard>
+        </section>
       </div>
 
       <div className="mt-6 grid gap-6 xl:grid-cols-[1.02fr_0.98fr]">
+        <section id="homepage-sections" className="scroll-mt-28">
         <SectionCard
           title="Bosh sahifa bo'limlari"
           description="Homepage sectionlarini yoqish/o'chirish, tahrirlash va tartiblash mumkin."
@@ -1631,7 +1754,9 @@ export function AdminPage() {
             ) : null}
           </div>
         </SectionCard>
+        </section>
 
+        <section id="media-library" className="scroll-mt-28">
         <SectionCard
           title="Yuklangan media"
           description="Media fayllarni kategoriyalar bo'yicha ko'ring va kerak bo'lsa o'chiring."
@@ -1680,9 +1805,11 @@ export function AdminPage() {
             ))}
           </div>
         </SectionCard>
+        </section>
       </div>
 
       <div className="mt-6 grid gap-6 xl:grid-cols-[1.04fr_0.96fr]">
+        <section id="package-editor" className="scroll-mt-28">
         <SectionCard
           title={editingPackageId ? "Paketni tahrirlash" : "Paket yaratish"}
           description="Yangi paketlar va ularning narxlarini boshqaring."
@@ -1829,7 +1956,9 @@ export function AdminPage() {
             </div>
           </form>
         </SectionCard>
+        </section>
 
+        <section id="package-list" className="scroll-mt-28">
         <SectionCard
           title="Paketlar ro'yxati"
           description="Paketlarni tahrirlang yoki o'chiring."
@@ -1902,9 +2031,11 @@ export function AdminPage() {
             ) : null}
           </div>
         </SectionCard>
+        </section>
       </div>
 
       <div className="mt-6 grid gap-6 xl:grid-cols-[1.08fr_0.92fr]">
+        <section id="bookings" className="scroll-mt-28">
         <SectionCard
           title="Bronlar"
           description="Kelgan so'rovlarni ko'rib chiqing va ularning holatini yangilang."
@@ -1999,7 +2130,9 @@ export function AdminPage() {
             ) : null}
           </div>
         </SectionCard>
+        </section>
 
+        <section id="quick-view" className="scroll-mt-28">
         <SectionCard
           title="Tezkor ko'rinish"
           description="So'nggi bronlar va media taqsimotini qisqacha ko'rsatadi."
@@ -2043,6 +2176,9 @@ export function AdminPage() {
             </div>
           </div>
         </SectionCard>
+        </section>
+      </div>
+        </div>
       </div>
     </div>
   );

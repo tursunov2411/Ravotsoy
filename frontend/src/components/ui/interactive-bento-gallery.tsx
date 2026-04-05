@@ -1,5 +1,5 @@
 import { AnimatePresence, motion } from "framer-motion";
-import { ChevronLeft, ChevronRight, Grip, X } from "lucide-react";
+import { ChevronLeft, ChevronRight, Grip, RotateCcw, X, ZoomIn, ZoomOut } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 
 export interface BentoGalleryItem {
@@ -170,6 +170,11 @@ function GalleryModal({
   onNext,
 }: GalleryModalProps) {
   const [dockPosition, setDockPosition] = useState({ x: 0, y: 0 });
+  const [zoom, setZoom] = useState(1);
+
+  useEffect(() => {
+    setZoom(1);
+  }, [selectedItem.id]);
 
   if (!isOpen) {
     return null;
@@ -203,18 +208,77 @@ function GalleryModal({
                 exit={{ opacity: 0, scale: 0.985 }}
                 transition={{ duration: 0.22, ease: [0.16, 1, 0.3, 1] }}
               >
-                <MediaItem
-                  item={selectedItem}
-                  fit="contain"
-                  className="max-h-[72vh] max-w-full"
-                  onClick={onClose}
-                />
+                <motion.div
+                  drag={zoom === 1 ? "x" : false}
+                  dragConstraints={{ left: 0, right: 0 }}
+                  dragElastic={0.08}
+                  onDragEnd={(_, info) => {
+                    if (zoom > 1) {
+                      return;
+                    }
+
+                    if (info.offset.x <= -90) {
+                      onNext();
+                      return;
+                    }
+
+                    if (info.offset.x >= 90) {
+                      onPrevious();
+                    }
+                  }}
+                  animate={{ scale: zoom }}
+                  transition={{ type: "spring", stiffness: 280, damping: 28 }}
+                  className="flex max-h-[72vh] max-w-full items-center justify-center"
+                  style={{ touchAction: zoom > 1 ? "none" : "pan-y" }}
+                >
+                  <MediaItem
+                    item={selectedItem}
+                    fit="contain"
+                    className="max-h-[72vh] max-w-full select-none"
+                  />
+                </motion.div>
                 <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/70 via-black/35 to-transparent p-4 sm:p-6">
                   <h3 className="text-lg font-semibold text-white sm:text-2xl">{selectedItem.title}</h3>
                   <p className="mt-1 max-w-2xl text-sm leading-6 text-white/80 sm:text-base">
                     {selectedItem.desc}
                   </p>
                 </div>
+
+                {selectedItem.type === "image" ? (
+                  <div className="absolute left-4 top-4 flex items-center gap-2 rounded-full bg-white/82 px-2 py-2 text-slate-700 shadow-lg backdrop-blur">
+                    <button
+                      type="button"
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        setZoom((current) => Math.max(1, Number((current - 0.25).toFixed(2))));
+                      }}
+                      className="inline-flex h-9 w-9 items-center justify-center rounded-full transition hover:bg-white"
+                    >
+                      <ZoomOut className="h-4 w-4" />
+                    </button>
+                    <span className="min-w-[56px] text-center text-xs font-medium">{Math.round(zoom * 100)}%</span>
+                    <button
+                      type="button"
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        setZoom((current) => Math.min(2.5, Number((current + 0.25).toFixed(2))));
+                      }}
+                      className="inline-flex h-9 w-9 items-center justify-center rounded-full transition hover:bg-white"
+                    >
+                      <ZoomIn className="h-4 w-4" />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        setZoom(1);
+                      }}
+                      className="inline-flex h-9 w-9 items-center justify-center rounded-full transition hover:bg-white"
+                    >
+                      <RotateCcw className="h-4 w-4" />
+                    </button>
+                  </div>
+                ) : null}
 
                 <div className="pointer-events-none absolute inset-y-0 left-0 right-0 flex items-center justify-between px-3 sm:px-5">
                   <motion.button
