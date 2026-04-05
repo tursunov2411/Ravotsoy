@@ -4,7 +4,6 @@ import {
   CalendarDays,
   ChevronLeft,
   ChevronRight,
-  CreditCard,
   LoaderCircle,
   Sparkles,
   TicketPercent,
@@ -112,7 +111,6 @@ export function BookingPage() {
     return sum + (option?.unitCapacity ?? 0) * selection.quantity;
   }, 0);
   const discountActive = selectedSelections.some((item) => String(item.resourceType).startsWith("room_") && item.includeTapchan === false);
-  const depositRatio = Number(siteSettings?.payment_deposit_ratio ?? 0.3);
 
   useEffect(() => {
     let cancelled = false;
@@ -145,7 +143,6 @@ export function BookingPage() {
   }, [estimatedGuests, hasValidDates, selectedEndDate, selectedSelections, selectedStartDate]);
 
   const hotelName = siteSettings?.hotel_name?.trim() || "Ravotsoy";
-  const depositAmount = Math.ceil((quoteInfo?.totalPrice ?? 0) * depositRatio);
   const introImage = serviceMedia[0]?.url || "";
   const currentServiceImage = currentOption
     ? serviceMedia.find((item) => item.resource_type === currentOption.resourceType)?.url || ""
@@ -359,19 +356,6 @@ export function BookingPage() {
               <div className="mt-5 grid gap-4 sm:grid-cols-2">
                 <div className="rounded-[24px] border border-slate-200 bg-slate-50 p-5"><p className="text-xs uppercase tracking-[0.22em] text-slate-400">Boshlang'ich mehmonlar</p><p className="mt-2 text-lg font-semibold text-slate-950">{estimatedGuests} kishi</p></div>
                 <div className="rounded-[24px] border border-slate-200 bg-slate-50 p-5"><p className="text-xs uppercase tracking-[0.22em] text-slate-400">Davomiylik</p><p className="mt-2 text-lg font-semibold text-slate-950">{hasStaySelection ? `${nights || 0} kecha` : "1 kun"}</p></div>
-              </div>
-              <div className="mt-5 rounded-[28px] border border-slate-200 bg-slate-50 p-5">
-                <div className="flex items-center gap-2 text-slate-500"><CreditCard size={18} /><p className="text-sm font-medium">To'lov ma'lumoti</p></div>
-                <div className="mt-4 grid gap-3 sm:grid-cols-2">
-                  <div className="rounded-[22px] bg-white p-4"><p className="text-xs uppercase tracking-[0.22em] text-slate-400">Karta raqami</p><p className="mt-2 text-base font-semibold text-slate-950">{siteSettings?.payment_card_number?.trim() || "Admin panelda kiritilmagan"}</p></div>
-                  <div className="rounded-[22px] bg-white p-4"><p className="text-xs uppercase tracking-[0.22em] text-slate-400">Karta egasi</p><p className="mt-2 text-base font-semibold text-slate-950">{siteSettings?.payment_card_holder?.trim() || "Admin panelda kiritilmagan"}</p></div>
-                  <div className="rounded-[22px] bg-white p-4"><p className="text-xs uppercase tracking-[0.22em] text-slate-400">Avans foizi</p><p className="mt-2 text-base font-semibold text-slate-950">{Math.round(depositRatio * 100)}%</p></div>
-                  <div className="rounded-[22px] bg-white p-4"><p className="text-xs uppercase tracking-[0.22em] text-slate-400">Taxminiy avans</p><p className="mt-2 text-base font-semibold text-slate-950">{formatCurrency(depositAmount)}</p></div>
-                </div>
-                <p className="mt-4 text-sm leading-7 text-slate-600">{siteSettings?.payment_instructions?.trim() || "To'lov va chek yuborish Telegram botda davom etadi."}</p>
-              </div>
-              <div className="mt-5 rounded-[28px] border border-slate-200 bg-slate-50 p-5 text-sm font-medium text-slate-900">
-                {quoteInfo?.available ? "Tanlangan sana bo'yicha xizmatlar hozircha mavjud." : quoteInfo?.message || "Sana tanlangandan keyin bo'sh joy tekshiriladi."}
               </div>
               {error ? <div className="mt-5 rounded-[22px] border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{error}</div> : null}
             </AnimatedSection>
