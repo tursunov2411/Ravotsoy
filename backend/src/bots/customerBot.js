@@ -335,6 +335,10 @@ function buildTrackingStatusLabel(status) {
     return "confirmed";
   }
 
+  if (status === "checked_in") {
+    return "checked in";
+  }
+
   if (status === "rejected") {
     return "rejected";
   }

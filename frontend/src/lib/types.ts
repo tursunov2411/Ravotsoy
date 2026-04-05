@@ -23,6 +23,7 @@ export type BookingStatus =
   | "pending"
   | "proof_submitted"
   | "confirmed"
+  | "checked_in"
   | "rejected"
   | "cancelled"
   | "completed"

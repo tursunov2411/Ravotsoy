@@ -299,6 +299,10 @@ function statusLabel(status: BookingRecord["status"]) {
     return "Tasdiqlangan";
   }
 
+  if (status === "checked_in") {
+    return "Mehmon ichkarida";
+  }
+
   if (status === "proof_submitted") {
     return "To'lov tekshirilmoqda";
   }
@@ -321,6 +325,10 @@ function statusLabel(status: BookingRecord["status"]) {
 function statusClass(status: BookingRecord["status"]) {
   if (status === "approved" || status === "confirmed") {
     return "border-emerald-300/40 bg-emerald-500/12 text-emerald-100";
+  }
+
+  if (status === "checked_in") {
+    return "border-indigo-300/40 bg-indigo-500/12 text-indigo-100";
   }
 
   if (status === "proof_submitted") {

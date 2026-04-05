@@ -5,6 +5,7 @@ import { notifyManagerAboutProof } from "./managerNotifications.js";
 const supabase = createSupabasePrivilegedClient();
 const PROOF_BUCKET = "payment-proofs";
 const STORAGE_PREFIX = `storage://${PROOF_BUCKET}/`;
+const TASHKENT_OFFSET = "+05:00";
 
 function requireText(value, fieldName) {
   const text = String(value ?? "").trim();
@@ -22,6 +23,39 @@ function sanitizePathPart(value) {
     .toLowerCase()
     .replace(/[^a-z0-9._-]+/g, "-")
     .replace(/^-+|-+$/g, "") || "file";
+}
+
+function buildBookingWindow(startInput, endInput) {
+  const startText = requireText(startInput, "startDate");
+  const start = new Date(`${startText}T00:00:00${TASHKENT_OFFSET}`);
+
+  if (Number.isNaN(start.getTime())) {
+    throw new Error("Sana noto'g'ri.");
+  }
+
+  if (!endInput) {
+    const end = new Date(start.getTime() + 24 * 60 * 60 * 1000);
+    return {
+      dateStart: startText,
+      dateEnd: null,
+      startTime: start.toISOString(),
+      endTime: end.toISOString(),
+    };
+  }
+
+  const endText = String(endInput).trim();
+  const end = new Date(`${endText}T00:00:00${TASHKENT_OFFSET}`);
+
+  if (Number.isNaN(end.getTime()) || end <= start) {
+    throw new Error("Yakuniy sana boshlanish sanasidan keyin bo'lishi kerak.");
+  }
+
+  return {
+    dateStart: startText,
+    dateEnd: endText,
+    startTime: start.toISOString(),
+    endTime: end.toISOString(),
+  };
 }
 
 function parseStorageReference(value) {
@@ -141,6 +175,10 @@ function normalizeTrackingStatus(booking) {
     return "confirmed";
   }
 
+  if (booking.status === "checked_in") {
+    return "checked_in";
+  }
+
   if (booking.status === "rejected" || booking.status === "cancelled") {
     return "rejected";
   }
@@ -219,6 +257,44 @@ async function fetchTelegramUser(userId) {
     phone: String(data.phone ?? ""),
     role: String(data.role ?? "customer"),
   };
+}
+
+async function fetchBookingRow(bookingId) {
+  const normalizedBookingId = requireText(bookingId, "bookingId");
+  const { data, error } = await supabase
+    .from("bookings")
+    .select(
+      "id, user_id, booking_label, requested_resources, name, phone, email, guests, people_count, date_start, date_end, start_time, end_time, total_price, estimated_price, source, status, payment_status, booking_resources(id, quantity, resource_id, resources(id, type, name, capacity))",
+    )
+    .eq("id", normalizedBookingId)
+    .maybeSingle();
+
+  if (error) {
+    throw error;
+  }
+
+  return data;
+}
+
+async function fetchConflictingAssignments(bookingId, resourceIds, startIso, endIso) {
+  if (!Array.isArray(resourceIds) || resourceIds.length === 0) {
+    return [];
+  }
+
+  const { data, error } = await supabase
+    .from("booking_resources")
+    .select("resource_id, bookings!inner(id, status, start_time, end_time)")
+    .in("resource_id", resourceIds)
+    .neq("booking_id", bookingId)
+    .lt("bookings.start_time", endIso)
+    .gt("bookings.end_time", startIso)
+    .not("bookings.status", "in", "(rejected,cancelled,completed)");
+
+  if (error) {
+    throw error;
+  }
+
+  return Array.isArray(data) ? data : [];
 }
 
 export async function upsertTelegramUser({ telegramId, name, phone, role = "customer" }) {
@@ -470,6 +546,122 @@ export async function cancelBookingManually(bookingId) {
       payment_status: "failed",
       manager_proof_message_id: null,
       manager_proof_chat_id: null,
+    })
+    .eq("id", normalizedBookingId);
+
+  if (error) {
+    throw error;
+  }
+
+  return fetchBookingContext(normalizedBookingId);
+}
+
+export async function setBookingCheckedIn(bookingId) {
+  const normalizedBookingId = requireText(bookingId, "bookingId");
+  const { error } = await supabase
+    .from("bookings")
+    .update({ status: "checked_in" })
+    .eq("id", normalizedBookingId);
+
+  if (error) {
+    throw error;
+  }
+
+  return fetchBookingContext(normalizedBookingId);
+}
+
+export async function setBookingCompleted(bookingId) {
+  const normalizedBookingId = requireText(bookingId, "bookingId");
+  const { error } = await supabase
+    .from("bookings")
+    .update({ status: "completed" })
+    .eq("id", normalizedBookingId);
+
+  if (error) {
+    throw error;
+  }
+
+  return fetchBookingContext(normalizedBookingId);
+}
+
+export async function updateBookingPriceManually(bookingId, totalPrice) {
+  const normalizedBookingId = requireText(bookingId, "bookingId");
+  const normalizedTotalPrice = Number.parseInt(String(totalPrice ?? ""), 10);
+
+  if (!Number.isInteger(normalizedTotalPrice) || normalizedTotalPrice <= 0) {
+    throw new Error("Narx musbat butun son bo'lishi kerak.");
+  }
+
+  const { error } = await supabase
+    .from("bookings")
+    .update({
+      total_price: normalizedTotalPrice,
+      estimated_price: normalizedTotalPrice,
+    })
+    .eq("id", normalizedBookingId);
+
+  if (error) {
+    throw error;
+  }
+
+  const { data: payment } = await supabase
+    .from("payments")
+    .select("id")
+    .eq("booking_id", normalizedBookingId)
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  if (payment?.id) {
+    const { error: paymentError } = await supabase
+      .from("payments")
+      .update({ amount: normalizedTotalPrice })
+      .eq("id", payment.id);
+
+    if (paymentError) {
+      throw paymentError;
+    }
+  }
+
+  return fetchBookingContext(normalizedBookingId);
+}
+
+export async function moveBookingDatesManually(bookingId, startDate, endDate = null) {
+  const normalizedBookingId = requireText(bookingId, "bookingId");
+  const booking = await fetchBookingRow(normalizedBookingId);
+
+  if (!booking) {
+    throw new Error("Bron topilmadi.");
+  }
+
+  if (["rejected", "cancelled", "completed"].includes(String(booking.status ?? ""))) {
+    throw new Error("Bu bron uchun sanani o'zgartirib bo'lmaydi.");
+  }
+
+  const window = buildBookingWindow(startDate, endDate);
+  const bookingResources = Array.isArray(booking.booking_resources) ? booking.booking_resources : [];
+  const resourceIds = bookingResources
+    .map((item) => String(item.resource_id ?? "").trim())
+    .filter(Boolean);
+
+  const conflicts = await fetchConflictingAssignments(
+    normalizedBookingId,
+    resourceIds,
+    window.startTime,
+    window.endTime,
+  );
+
+  if (conflicts.length > 0) {
+    throw new Error("Tanlangan yangi sanalarda shu joylardan biri band.");
+  }
+
+  const { error } = await supabase
+    .from("bookings")
+    .update({
+      date_start: window.dateStart,
+      date_end: window.dateEnd,
+      start_time: window.startTime,
+      end_time: window.endTime,
     })
     .eq("id", normalizedBookingId);
 

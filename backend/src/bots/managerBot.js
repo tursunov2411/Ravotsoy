@@ -7,6 +7,10 @@ import {
   loadLatestProofAsset,
   rejectBookingManually,
   rejectBookingProof,
+  moveBookingDatesManually,
+  setBookingCheckedIn,
+  setBookingCompleted,
+  updateBookingPriceManually,
 } from "../services/proofService.js";
 import {
   addReportRecipient,
@@ -64,6 +68,10 @@ const ACTIONS = {
   resourceImageDelete: "mres_img_del_",
   bookingDetail: "mbook_detail_",
   bookingFree: "mbook_free_",
+  bookingCheckIn: "mbook_checkin_",
+  bookingLeft: "mbook_left_",
+  bookingMoveDate: "mbook_move_",
+  bookingPrice: "mbook_price_",
   pricing: "mpr_",
   pricingBaseUp: "mpr_bu_",
   pricingBaseDown: "mpr_bd_",
@@ -169,6 +177,10 @@ function buildBookingsKeyboard() {
         { text: "❌ Rad etilgan", callback_data: `${ACTIONS.bookings}rejected` },
       ],
       [
+        { text: "🏁 Mehmon ichkarida", callback_data: `${ACTIONS.bookings}checked_in` },
+        { text: "👋 Yakunlangan", callback_data: `${ACTIONS.bookings}completed` },
+      ],
+      [
         { text: "📅 Bugun", callback_data: `${ACTIONS.bookings}today` },
         { text: "📆 Ertaga", callback_data: `${ACTIONS.bookings}tomorrow` },
       ],
@@ -233,27 +245,42 @@ function buildReportRecipientsKeyboard(recipients) {
 }
 
 function buildBookingDetailKeyboard(booking) {
-  const actions = [
-    [{ text: "📚 Bronlar ro'yxati", callback_data: `${ACTIONS.main}bookings` }],
-  ];
+  const rows = [];
+  const isPending = booking.rawStatus === "pending" || booking.rawStatus === "proof_submitted";
+  const isConfirmed = booking.rawStatus === "confirmed";
+  const isCheckedIn = booking.rawStatus === "checked_in";
+  const isClosed = ["rejected", "cancelled", "completed"].includes(booking.rawStatus);
 
-  if (booking.trackingStatus === "pending" || booking.trackingStatus === "awaiting confirmation") {
-    actions.unshift([
+  if (booking.hasProof) {
+    rows.push([{ text: "🧾 Chekni ko'rish", callback_data: `${ACTIONS.view}${booking.id}` }]);
+  }
+
+  if (isPending) {
+    rows.push([
       { text: "✅ Tasdiqlash", callback_data: `${ACTIONS.approve}${booking.id}` },
       { text: "❌ Rad etish", callback_data: `${ACTIONS.reject}${booking.id}` },
     ]);
   }
 
-  if (booking.hasProof) {
-    actions.unshift([{ text: "🧾 Chekni ko'rish", callback_data: `${ACTIONS.view}${booking.id}` }]);
+  if (isConfirmed) {
+    rows.push([{ text: "🏁 Mehmon check-in qildi", callback_data: `${ACTIONS.bookingCheckIn}${booking.id}` }]);
   }
 
-  if (booking.trackingStatus !== "rejected" && booking.trackingStatus !== "cancelled") {
-    actions.unshift([{ text: "🔓 Joyni bo'shatish", callback_data: `${ACTIONS.bookingFree}${booking.id}` }]);
+  if (isCheckedIn) {
+    rows.push([{ text: "👋 Mehmon ketdi", callback_data: `${ACTIONS.bookingLeft}${booking.id}` }]);
   }
 
-  actions.push([{ text: "🔙 Orqaga", callback_data: ACTIONS.backMain }]);
-  return { inline_keyboard: actions };
+  if (!isClosed) {
+    rows.push([
+      { text: "📅 Boshqa sanaga ko'chirish", callback_data: `${ACTIONS.bookingMoveDate}${booking.id}` },
+      { text: "💵 Narx o'zgardi", callback_data: `${ACTIONS.bookingPrice}${booking.id}` },
+    ]);
+    rows.push([{ text: "🔓 Joyni bo'shatish / bekor qilish", callback_data: `${ACTIONS.bookingFree}${booking.id}` }]);
+  }
+
+  rows.push([{ text: "📚 Bronlar ro'yxati", callback_data: `${ACTIONS.main}bookings` }]);
+  rows.push([{ text: "🔙 Orqaga", callback_data: ACTIONS.backMain }]);
+  return { inline_keyboard: rows };
 }
 
 function buildBookingListKeyboard(bookings) {
@@ -524,7 +551,7 @@ function formatBookingDetail(booking) {
     `Mijoz: ${booking.name || "Ko'rsatilmagan"}`,
     `Telefon: ${booking.phone || "Ko'rsatilmagan"}`,
     `Tanlov: ${booking.bookingLabel}`,
-    `Holat: ${booking.trackingStatus}`,
+    `Holat: ${booking.statusLabel || booking.trackingStatus}`,
     `To'lov holati: ${booking.paymentStatus}`,
     `Manba: ${booking.source}`,
     `Sana: ${booking.dateStart}${booking.dateEnd ? ` - ${booking.dateEnd}` : ""}`,
@@ -555,6 +582,7 @@ export function createManagerBot() {
   const pendingRecipientInputs = new Map();
   const pendingPaymentInputs = new Map();
   const pendingOfflineBookings = new Map();
+  const pendingBookingEdits = new Map();
 
   async function sendManagerMessage(chatId, text, extra = {}) {
     if (!telegram) {
@@ -761,6 +789,8 @@ export function createManagerBot() {
       pending: "pending",
       awaiting: "awaiting confirmation",
       confirmed: "confirmed",
+      checked_in: "checked_in",
+      completed: "completed",
       rejected: "rejected",
     };
 
@@ -770,6 +800,8 @@ export function createManagerBot() {
       pending: "🕓 Kutilayotgan bronlar",
       "awaiting confirmation": "🧾 Chek tekshiruvidagi bronlar",
       confirmed: "✅ Tasdiqlangan bronlar",
+      checked_in: "🏁 Mehmon ichkaridagi bronlar",
+      completed: "👋 Yakunlangan bronlar",
       rejected: "❌ Rad etilgan bronlar",
     };
     await sendManagerMessage(chatId, formatBookingList(titleMap[status] ?? "📚 So'nggi bronlar", bookings), {
@@ -790,9 +822,24 @@ export function createManagerBot() {
     const booking = context.booking;
     const detail = {
       id: booking.id,
+      rawStatus: booking.status,
       name: booking.name,
       phone: booking.phone,
       bookingLabel: booking.booking_label || booking.resource_summary || "Ko'rsatilmagan",
+      statusLabel:
+        booking.status === "checked_in"
+          ? "mehmon ichkarida"
+          : booking.status === "completed"
+            ? "mehmon ketgan"
+            : booking.status === "cancelled"
+              ? "bekor qilingan"
+              : booking.status === "rejected"
+                ? "rad etilgan"
+                : booking.status === "proof_submitted" || booking.payment_status === "pending_verification"
+                  ? "to'lov tekshiruvida"
+                  : booking.status === "confirmed"
+                    ? "tasdiqlangan"
+                    : "kutilmoqda",
       trackingStatus: booking.status === "proof_submitted" || booking.payment_status === "pending_verification"
         ? "awaiting confirmation"
         : booking.status === "confirmed" || booking.status === "completed"
@@ -1047,6 +1094,42 @@ export function createManagerBot() {
         await cancelBookingManually(bookingId);
         await answerCallbackQuery(callbackQueryId, "Joy bo'shatildi");
         await showBookingDetail(chatId, bookingId);
+        return true;
+      }
+
+      if (data.startsWith(ACTIONS.bookingCheckIn)) {
+        const bookingId = data.slice(ACTIONS.bookingCheckIn.length);
+        await setBookingCheckedIn(bookingId);
+        await answerCallbackQuery(callbackQueryId, "Mehmon check-in qilindi");
+        await showBookingDetail(chatId, bookingId);
+        return true;
+      }
+
+      if (data.startsWith(ACTIONS.bookingLeft)) {
+        const bookingId = data.slice(ACTIONS.bookingLeft.length);
+        await setBookingCompleted(bookingId);
+        await answerCallbackQuery(callbackQueryId, "Mehmon ketdi");
+        await showBookingDetail(chatId, bookingId);
+        return true;
+      }
+
+      if (data.startsWith(ACTIONS.bookingMoveDate)) {
+        const bookingId = data.slice(ACTIONS.bookingMoveDate.length);
+        pendingBookingEdits.set(chatId, { type: "moveDate", bookingId });
+        await answerCallbackQuery(callbackQueryId, "Yangi sana yuboring");
+        await sendManagerMessage(chatId, "📅 Yangi sanani yuboring.\n\nBir kunlik bo'lsa: `YYYY-MM-DD`\nTunab qolish bo'lsa: `YYYY-MM-DD YYYY-MM-DD`", {
+          parse_mode: "Markdown",
+        });
+        return true;
+      }
+
+      if (data.startsWith(ACTIONS.bookingPrice)) {
+        const bookingId = data.slice(ACTIONS.bookingPrice.length);
+        pendingBookingEdits.set(chatId, { type: "price", bookingId });
+        await answerCallbackQuery(callbackQueryId, "Yangi narx yuboring");
+        await sendManagerMessage(chatId, "💵 Yangi narxni yuboring.\n\nMasalan: `1750000`", {
+          parse_mode: "Markdown",
+        });
         return true;
       }
 
@@ -1520,6 +1603,51 @@ export function createManagerBot() {
           }
 
           return;
+        }
+
+        const pendingBookingEdit = pendingBookingEdits.get(chatId);
+
+        if (pendingBookingEdit) {
+          try {
+            if (pendingBookingEdit.type === "price") {
+              const numericPrice = Number.parseInt(text.replace(/[^\d]/g, ""), 10);
+
+              if (!Number.isInteger(numericPrice) || numericPrice <= 0) {
+                await sendManagerMessage(chatId, "⚠️ Narxni butun son bilan yuboring. Masalan: `1750000`", {
+                  parse_mode: "Markdown",
+                });
+                return;
+              }
+
+              pendingBookingEdits.delete(chatId);
+              await updateBookingPriceManually(pendingBookingEdit.bookingId, numericPrice);
+              await sendManagerMessage(chatId, "✅ Bron narxi yangilandi.");
+              await showBookingDetail(chatId, pendingBookingEdit.bookingId);
+              return;
+            }
+
+            if (pendingBookingEdit.type === "moveDate") {
+              const parts = text.split(/\s+/).filter(Boolean);
+
+              if (parts.length < 1 || parts.length > 2 || !parts.every((item) => /^\d{4}-\d{2}-\d{2}$/.test(item))) {
+                await sendManagerMessage(chatId, "⚠️ Sana formatini to'g'ri yuboring.\n\n`YYYY-MM-DD` yoki `YYYY-MM-DD YYYY-MM-DD`", {
+                  parse_mode: "Markdown",
+                });
+                return;
+              }
+
+              pendingBookingEdits.delete(chatId);
+              await moveBookingDatesManually(pendingBookingEdit.bookingId, parts[0], parts[1] ?? null);
+              await sendManagerMessage(chatId, "✅ Bron sanasi ko'chirildi.");
+              await showBookingDetail(chatId, pendingBookingEdit.bookingId);
+              return;
+            }
+          } catch (error) {
+            console.error(`Booking edit failed: ${formatAxiosError(error)}`);
+            pendingBookingEdits.delete(chatId);
+            await sendManagerMessage(chatId, error instanceof Error ? `❌ ${error.message}` : "❌ Bronni yangilab bo'lmadi.");
+            return;
+          }
         }
 
         if (pendingOfflineBooking) {

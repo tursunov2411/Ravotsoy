@@ -86,6 +86,10 @@ function normalizeTrackingStatus(record) {
     return "confirmed";
   }
 
+  if (status === "checked_in") {
+    return "checked_in";
+  }
+
   if (status === "rejected" || status === "cancelled") {
     return "rejected";
   }
@@ -236,7 +240,7 @@ async function fetchBookingsBetween(startIso, endIso) {
     .select(
       "id, booking_label, name, phone, source, status, payment_status, total_price, estimated_price, date_start, date_end, start_time, end_time, created_at, booking_resources(resource_id, resources(id, type, name, capacity))",
     )
-    .not("status", "in", "(rejected,cancelled)")
+    .not("status", "in", "(rejected,cancelled,completed)")
     .lt("start_time", endIso)
     .gt("end_time", startIso)
     .order("start_time", { ascending: true });
@@ -414,7 +418,7 @@ export async function getBusinessAnalytics(period = "today") {
   const roomResources = activeResources.filter((item) => item.type.startsWith("room_"));
   const tapchanResources = activeResources.filter((item) => item.type.startsWith("tapchan_"));
   const bookingSummaries = bookings.map(summarizeBooking);
-  const confirmedBookings = bookingSummaries.filter((item) => item.trackingStatus === "confirmed");
+  const confirmedBookings = bookingSummaries.filter((item) => item.trackingStatus === "confirmed" || item.trackingStatus === "checked_in");
   const rejectedBookings = bookingSummaries.filter((item) => item.trackingStatus === "rejected");
 
   const bookedRoomIds = new Set();
