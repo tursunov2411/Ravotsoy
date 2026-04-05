@@ -342,6 +342,21 @@ function iconButtonClassName() {
   return "inline-flex h-10 w-10 items-center justify-center rounded-full border border-black/10 bg-white text-ink transition hover:bg-pearl";
 }
 
+function getErrorMessage(error: unknown) {
+  if (error instanceof Error && error.message) {
+    return error.message;
+  }
+
+  if (typeof error === "object" && error !== null && "message" in error) {
+    const message = (error as { message?: unknown }).message;
+    if (typeof message === "string" && message.trim()) {
+      return message;
+    }
+  }
+
+  return "Noma'lum xatolik.";
+}
+
 type AdminNavItem = {
   id: "overview" | "settings" | "media" | "homepage" | "packages" | "bookings";
   label: string;
@@ -566,18 +581,13 @@ export function AdminPage() {
           : [...current, nextItem];
       });
 
-      await refresh();
       setEditingPackageId(null);
       setPackageForm(createEmptyPackage());
       setPackageImageFiles([]);
       setNotice("Paket muvaffaqiyatli saqlandi.");
     } catch (submitError) {
       console.error(submitError);
-      setError(
-        submitError instanceof Error && submitError.message
-          ? `Paketni saqlashda xatolik yuz berdi: ${submitError.message}`
-          : "Paketni saqlashda xatolik yuz berdi.",
-      );
+      setError(`Paketni saqlashda xatolik yuz berdi: ${getErrorMessage(submitError)}`);
     } finally {
       setWorking(false);
     }
