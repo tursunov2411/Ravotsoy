@@ -77,13 +77,16 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
-  if (req.method !== "POST" || !["/telegram/booking", "/send-telegram"].includes(req.url ?? "")) {
+  if (
+    req.method !== "POST" ||
+    !["/telegram/booking", "/telegram-booking", "/send-telegram"].includes(req.url ?? "")
+  ) {
     res.writeHead(404, { "Content-Type": "application/json" });
     res.end(JSON.stringify({ ok: false, error: "Topilmadi" }));
     return;
   }
 
-  if (req.url === "/telegram/booking" && webhookSecret) {
+  if ((req.url === "/telegram/booking" || req.url === "/telegram-booking") && webhookSecret) {
     const providedSecret = req.headers["x-webhook-secret"];
 
     if (providedSecret !== webhookSecret) {

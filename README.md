@@ -95,7 +95,7 @@ Tartib bilan quyidagilarni ishlating:
 
 `backend/supabase/migrations/3_create_booking_telegram_webhook.sql` ichida quyidagilarni almashtiring:
 
-- `https://YOUR_PUBLIC_NODE_ENDPOINT/telegram/booking`
+- `https://YOUR_PUBLIC_NODE_ENDPOINT/telegram-booking`
 - `change-me`
 
 Bu yerda:
@@ -180,7 +180,8 @@ VITE_BACKEND_URL=https://your-render-service.onrender.com
 ```
 
 Supabase SQL Editor ichida `backend/supabase/migrations/3_create_booking_telegram_webhook.sql`
-faylidagi webhook URL ni Render URL bilan almashtiring.
+faylidagi webhook URL ni `https://your-render-service.onrender.com/telegram-booking`
+ko'rinishida almashtiring.
 
 ## Asosiy imkoniyatlar
 

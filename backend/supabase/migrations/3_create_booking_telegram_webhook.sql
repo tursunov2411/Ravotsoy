@@ -1,5 +1,5 @@
 -- Quyidagi qiymatlarni SQL Editor ichida ishga tushirishdan oldin almashtiring:
--- 1. https://YOUR_PUBLIC_NODE_ENDPOINT/telegram/booking
+-- 1. https://YOUR_PUBLIC_NODE_ENDPOINT/telegram-booking
 -- 2. change-me
 --
 -- Eslatma:
@@ -40,7 +40,7 @@ begin
   );
 
   select net.http_post(
-    url := 'https://YOUR_PUBLIC_NODE_ENDPOINT/telegram/booking',
+    url := 'https://YOUR_PUBLIC_NODE_ENDPOINT/telegram-booking',
     headers := jsonb_build_object(
       'Content-Type', 'application/json',
       'x-webhook-secret', 'change-me'
