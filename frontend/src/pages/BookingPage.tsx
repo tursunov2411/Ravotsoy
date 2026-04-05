@@ -2,9 +2,9 @@ import { CalendarDays, LoaderCircle, Mail, Phone, Send, Sparkles, Users } from "
 import { type FormEvent, useEffect, useMemo, useState } from "react";
 import { useLocation } from "react-router-dom";
 import { AnimatedSection } from "../components/AnimatedSection";
-import { createBooking, getPackages } from "../lib/api";
+import { createBooking, getSiteSettings, getPackages } from "../lib/api";
 import { hasSupabaseConfig } from "../lib/supabase";
-import type { PackageRecord } from "../lib/types";
+import type { PackageRecord, SiteSettings } from "../lib/types";
 import { calculateNights, formatCurrency, todayIso } from "../lib/utils";
 
 const backendUrl = import.meta.env.VITE_BACKEND_URL?.replace(/\/$/, "") || "http://localhost:3001";
@@ -33,6 +33,7 @@ function getTypeLabel(type: PackageRecord["type"]) {
 export function BookingPage() {
   const location = useLocation();
   const [packages, setPackages] = useState<PackageRecord[]>([]);
+  const [siteSettings, setSiteSettings] = useState<SiteSettings | null>(null);
   const [error, setError] = useState("");
   const [successMessage, setSuccessMessage] = useState("");
   const [estimatedPrice, setEstimatedPrice] = useState(0);
@@ -51,14 +52,15 @@ export function BookingPage() {
   useEffect(() => {
     const load = async () => {
       try {
-        const data = await getPackages();
-        setPackages(data);
+        const [packagesData, settingsData] = await Promise.all([getPackages(), getSiteSettings()]);
+        setPackages(packagesData);
+        setSiteSettings(settingsData);
         const selectedPackageId = (location.state as { packageId?: string } | null)?.packageId;
 
         if (selectedPackageId) {
           setForm((current) => ({ ...current, packageId: selectedPackageId }));
-        } else if (data[0]) {
-          setForm((current) => ({ ...current, packageId: current.packageId || data[0].id }));
+        } else if (packagesData[0]) {
+          setForm((current) => ({ ...current, packageId: current.packageId || packagesData[0].id }));
         }
       } catch (loadError) {
         console.error(loadError);
@@ -69,6 +71,10 @@ export function BookingPage() {
   }, [location.state]);
 
   const selectedPackage = packages.find((item) => item.id === form.packageId) ?? null;
+  const hotelName = siteSettings?.hotel_name?.trim() || "Ravotsoy Dam Olish Maskani";
+  const bookingIntro =
+    siteSettings?.description?.trim() ||
+    "Paketni tanlang, sanani kiriting va bron so'rovingizni yuboring.";
   const nights = selectedPackage?.type === "stay" ? calculateNights(form.checkIn, form.checkOut) : 0;
 
   const calculatePrice = () => {
@@ -243,11 +249,10 @@ export function BookingPage() {
               Bron qilish
             </div>
             <h1 className="mt-5 text-4xl font-semibold tracking-tight sm:text-5xl">
-              Dam olish rejangizni bir necha daqiqada rasmiylashtiring
+              {hotelName} uchun bron
             </h1>
             <p className="mt-4 max-w-2xl text-sm leading-8 text-white/72 sm:text-base">
-              Paketni tanlang, sana va mehmonlar sonini kiriting. Tizim taxminiy narxni darhol
-              hisoblaydi va so'rovingizni Telegram orqali menejerga yuboradi.
+              {bookingIntro}
             </p>
           </div>
         </div>

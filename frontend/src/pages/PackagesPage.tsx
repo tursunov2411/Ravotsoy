@@ -1,11 +1,13 @@
 import { useEffect, useMemo, useState } from "react";
 import { AnimatedSection } from "../components/AnimatedSection";
 import { PackageCard } from "../components/PackageCard";
-import { getPackages } from "../lib/api";
-import type { PackageRecord, PackageType } from "../lib/types";
+import { getHomeSections, getPackages, getSiteSettings } from "../lib/api";
+import type { ContentSection, PackageRecord, PackageType, SiteSettings } from "../lib/types";
 
 export function PackagesPage() {
   const [packages, setPackages] = useState<PackageRecord[]>([]);
+  const [siteSettings, setSiteSettings] = useState<SiteSettings | null>(null);
+  const [homeSections, setHomeSections] = useState<ContentSection[]>([]);
   const [selectedType, setSelectedType] = useState<PackageType>("day");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -14,7 +16,14 @@ export function PackagesPage() {
     const load = async () => {
       try {
         setError("");
-        setPackages(await getPackages());
+        const [packagesData, settingsData, sectionsData] = await Promise.all([
+          getPackages(),
+          getSiteSettings(),
+          getHomeSections(),
+        ]);
+        setPackages(packagesData);
+        setSiteSettings(settingsData);
+        setHomeSections(sectionsData);
       } catch (loadError) {
         console.error(loadError);
         setError("Paketlarni yuklashda xatolik yuz berdi.");
@@ -30,6 +39,13 @@ export function PackagesPage() {
     () => packages.filter((item) => item.type === selectedType),
     [packages, selectedType],
   );
+  const packagesSection = homeSections.find((item) => item.section_type === "packages");
+  const hotelName = siteSettings?.hotel_name?.trim() || "Ravotsoy Dam Olish Maskani";
+  const heroTitle = packagesSection?.title?.trim() || `${hotelName} paketlari`;
+  const heroDescription =
+    packagesSection?.description?.trim() ||
+    siteSettings?.description?.trim() ||
+    "Mos paketni tanlang va bronni davom ettiring.";
 
   return (
     <div className="mx-auto max-w-7xl px-4 py-10 sm:px-6 lg:px-8">
@@ -46,13 +62,14 @@ export function PackagesPage() {
           <AnimatedSection className="rounded-[40px] bg-[#07111f] px-6 py-12 text-white shadow-[0_24px_80px_rgba(15,23,42,0.18)] sm:px-8 lg:px-10">
             <div className="grid gap-8 lg:grid-cols-[1.1fr_0.9fr] lg:items-end">
               <div>
-                <p className="text-xs uppercase tracking-[0.3em] text-white/55">Paketlar</p>
+                <p className="text-xs uppercase tracking-[0.3em] text-white/55">
+                  {packagesSection?.eyebrow || "Paketlar"}
+                </p>
                 <h1 className="mt-4 text-4xl font-semibold tracking-tight sm:text-5xl">
-                  O'zingizga mos dam olish formatini tez tanlang
+                  {heroTitle}
                 </h1>
                 <p className="mt-4 max-w-2xl text-sm leading-8 text-white/72 sm:text-base">
-                  Paketlar ikki yo'nalishda jamlangan: kunlik dam olish va tunab qolish.
-                  Kerakli turini tanlang, qolganini esa sahifa sodda ko'rinishda ko'rsatadi.
+                  {heroDescription}
                 </p>
               </div>
 

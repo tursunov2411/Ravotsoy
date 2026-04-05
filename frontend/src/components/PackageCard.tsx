@@ -33,7 +33,7 @@ export function PackageCard({ item }: PackageCardProps) {
             {item.type === "stay" ? "Tunab qolish" : "Kunlik dam olish"}
           </div>
           <div className="absolute inset-x-0 bottom-0 p-5 text-white">
-            <p className="text-xs uppercase tracking-[0.28em] text-white/70">Ravotsoy tanlovi</p>
+            <p className="text-xs uppercase tracking-[0.28em] text-white/70">Tanlangan paket</p>
             <h3 className="mt-2 text-2xl font-semibold tracking-tight">{item.name}</h3>
           </div>
         </div>
