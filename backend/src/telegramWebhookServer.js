@@ -1,10 +1,12 @@
 import express from "express";
+import multer from "multer";
 import { createCustomerBot } from "./bots/customerBot.js";
 import { createManagerBot } from "./bots/managerBot.js";
 import { readOptionalEnv } from "./bots/shared.js";
 import { sendTelegramMessage } from "../scripts/send-telegram-booking.mjs";
 import { createBooking, getPaymentConfig, quoteBooking } from "./services/bookingEngine.js";
-import { notifyManagerAboutBooking } from "./services/managerNotifications.js";
+import { notifyManagerAboutBooking, notifyManagerAboutProof } from "./services/managerNotifications.js";
+import { submitBookingProof } from "./services/proofService.js";
 
 const DEFAULT_PORT = 3001;
 
@@ -64,6 +66,12 @@ export function createTelegramWebhookApp() {
   const webhookSecret = readOptionalEnv("WEBHOOK_SECRET");
   const customerBot = createCustomerBot();
   const managerBot = createManagerBot();
+  const upload = multer({
+    storage: multer.memoryStorage(),
+    limits: {
+      fileSize: 10 * 1024 * 1024,
+    },
+  });
   const app = express();
 
   app.use(express.json({ limit: "5mb" }));
@@ -174,6 +182,32 @@ export function createTelegramWebhookApp() {
 
       await notifyManagerAboutBooking(result.booking);
       res.status(200).json({ ok: true, ...result });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Noma'lum xatolik";
+      res.status(400).json({ ok: false, error: message });
+    }
+  });
+
+  app.post("/api/bookings/:id/proof", upload.single("file"), async (req, res) => {
+    try {
+      const bookingId = String(req.params.id ?? "").trim();
+      const proofLink = String(req.body?.proofLink ?? req.body?.proof_url ?? "").trim();
+      const file = req.file
+        ? {
+            buffer: req.file.buffer,
+            originalName: req.file.originalname,
+            contentType: req.file.mimetype,
+          }
+        : null;
+
+      const context = await submitBookingProof({
+        bookingId,
+        proofLink,
+        file,
+      });
+
+      await notifyManagerAboutProof(context);
+      res.status(200).json({ ok: true, context });
     } catch (error) {
       const message = error instanceof Error ? error.message : "Noma'lum xatolik";
       res.status(400).json({ ok: false, error: message });

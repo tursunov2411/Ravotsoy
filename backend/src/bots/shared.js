@@ -58,6 +58,31 @@ export function createTelegramClient(token) {
     return response.data;
   }
 
+  async function callTelegramMultipart(method, payload) {
+    const form = new FormData();
+
+    for (const [key, value] of Object.entries(payload)) {
+      if (value === undefined || value === null) {
+        continue;
+      }
+
+      if (typeof value === "object" && "buffer" in value) {
+        const file = value;
+        const blob = new Blob([file.buffer], {
+          type: file.contentType || "application/octet-stream",
+        });
+
+        form.append(key, blob, file.filename || "file");
+        continue;
+      }
+
+      form.append(key, typeof value === "string" ? value : JSON.stringify(value));
+    }
+
+    const response = await api.post(method, form);
+    return response.data;
+  }
+
   return {
     callTelegram,
     sendMessage(chatId, text, extra = {}) {
@@ -68,10 +93,34 @@ export function createTelegramClient(token) {
       });
     },
     sendPhoto(chatId, photo, caption, extra = {}) {
+      if (typeof photo !== "string") {
+        return callTelegramMultipart("sendPhoto", {
+          chat_id: chatId,
+          photo,
+          ...(caption ? { caption } : {}),
+          ...extra,
+        });
+      }
+
       return callTelegram("sendPhoto", {
         chat_id: chatId,
         photo,
         caption,
+        ...extra,
+      });
+    },
+    sendDocument(chatId, document, extra = {}) {
+      if (typeof document !== "string") {
+        return callTelegramMultipart("sendDocument", {
+          chat_id: chatId,
+          document,
+          ...extra,
+        });
+      }
+
+      return callTelegram("sendDocument", {
+        chat_id: chatId,
+        document,
         ...extra,
       });
     },
@@ -80,6 +129,26 @@ export function createTelegramClient(token) {
         callback_query_id: callbackQueryId,
         ...(text ? { text } : {}),
       });
+    },
+    editMessageReplyMarkup(chatId, messageId, replyMarkup) {
+      return callTelegram("editMessageReplyMarkup", {
+        chat_id: chatId,
+        message_id: messageId,
+        reply_markup: replyMarkup,
+      });
+    },
+    getFile(fileId) {
+      return callTelegram("getFile", {
+        file_id: fileId,
+      });
+    },
+    async downloadFile(filePath) {
+      const response = await axios.get(`https://api.telegram.org/file/bot${token}/${filePath}`, {
+        responseType: "arraybuffer",
+        timeout: 15000,
+      });
+
+      return Buffer.from(response.data);
     },
   };
 }

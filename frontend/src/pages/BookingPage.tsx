@@ -2,7 +2,7 @@ import { CalendarDays, LoaderCircle, Mail, Phone, Send, Sparkles, Users } from "
 import { type FormEvent, useEffect, useMemo, useState } from "react";
 import { useLocation } from "react-router-dom";
 import { AnimatedSection } from "../components/AnimatedSection";
-import { createBooking, getSiteSettings, getPackages, quoteBooking } from "../lib/api";
+import { createBooking, getSiteSettings, getPackages, quoteBooking, submitBookingProof } from "../lib/api";
 import { hasSupabaseConfig } from "../lib/supabase";
 import type { BookingQuote, PackageRecord, PaymentConfig, SiteSettings } from "../lib/types";
 import { calculateNights, formatCurrency, todayIso } from "../lib/utils";
@@ -39,6 +39,12 @@ export function BookingPage() {
   const [estimatedPrice, setEstimatedPrice] = useState(0);
   const [quoteInfo, setQuoteInfo] = useState<BookingQuote | null>(null);
   const [paymentDetails, setPaymentDetails] = useState<PaymentConfig | null>(null);
+  const [createdBookingId, setCreatedBookingId] = useState("");
+  const [proofLink, setProofLink] = useState("");
+  const [proofFile, setProofFile] = useState<File | null>(null);
+  const [proofSubmitting, setProofSubmitting] = useState(false);
+  const [proofSuccessMessage, setProofSuccessMessage] = useState("");
+  const [proofInputKey, setProofInputKey] = useState(0);
   const [submitting, setSubmitting] = useState(false);
   const [form, setForm] = useState<BookingForm>({
     packageId: "",
@@ -215,6 +221,11 @@ export function BookingPage() {
     setError("");
     setSuccessMessage("");
     setPaymentDetails(null);
+    setCreatedBookingId("");
+    setProofFile(null);
+    setProofLink("");
+    setProofSuccessMessage("");
+    setProofInputKey((current) => current + 1);
 
     if (!selectedPackage) {
       setError("Avval paketni tanlang.");
@@ -286,6 +297,7 @@ export function BookingPage() {
 
       setEstimatedPrice(Number(result?.totalPrice ?? estimatedPrice));
       setPaymentDetails(result?.payment ?? null);
+      setCreatedBookingId(String(result?.bookingId ?? ""));
 
       setForm({
         packageId: selectedPackage.id,
@@ -298,12 +310,45 @@ export function BookingPage() {
         dayDate: todayIso(),
       });
       setQuoteInfo(null);
-      setSuccessMessage("Bron yaratildi. Endi to'lovni amalga oshirib, chekni menejerga yuboring.");
+      setSuccessMessage("Bron yaratildi. Endi to'lovni amalga oshirib, chekni shu sahifadan yoki Telegram orqali yuboring.");
     } catch (submitError) {
       console.error(submitError);
       setError(submitError instanceof Error ? submitError.message : "So'rovni yuborishda xatolik yuz berdi.");
     } finally {
       setSubmitting(false);
+    }
+  };
+
+  const handleProofUpload = async () => {
+    setError("");
+    setProofSuccessMessage("");
+
+    if (!createdBookingId) {
+      setError("Avval bron yarating.");
+      return;
+    }
+
+    if (!proofFile && !proofLink.trim()) {
+      setError("Chek fayli yoki linkini kiriting.");
+      return;
+    }
+
+    try {
+      setProofSubmitting(true);
+      await submitBookingProof({
+        bookingId: createdBookingId,
+        file: proofFile,
+        proofLink,
+      });
+      setProofFile(null);
+      setProofLink("");
+      setProofInputKey((current) => current + 1);
+      setProofSuccessMessage("Chek qabul qilindi. Menejer tasdiqlashini kuting.");
+    } catch (proofError) {
+      console.error(proofError);
+      setError(proofError instanceof Error ? proofError.message : "Chekni yuborishda xatolik yuz berdi.");
+    } finally {
+      setProofSubmitting(false);
     }
   };
 
@@ -551,12 +596,48 @@ export function BookingPage() {
             {successMessage ? (
               <div className="rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-700">
                 {successMessage}
-                {paymentDetails?.cardNumber ? (
-                  <div className="mt-3 space-y-1 text-left text-sm text-emerald-800">
+                <div className="mt-3 space-y-1 text-left text-sm text-emerald-800">
+                  {createdBookingId ? <p>Booking ID: {createdBookingId}</p> : null}
+                  {paymentDetails?.cardNumber ? (
+                    <>
                     <p>Karta: {paymentDetails.cardNumber}</p>
                     {paymentDetails.cardHolder ? <p>Karta egasi: {paymentDetails.cardHolder}</p> : null}
                     {paymentDetails.managerTelegram ? <p>Menejer: @{paymentDetails.managerTelegram}</p> : null}
                     {paymentDetails.instructions ? <p>{paymentDetails.instructions}</p> : null}
+                    </>
+                  ) : null}
+                </div>
+                {createdBookingId ? (
+                  <div className="mt-4 rounded-2xl border border-emerald-200 bg-white px-4 py-4 text-left text-sm text-emerald-900">
+                    <p className="font-medium">To'lov cheki</p>
+                    <p className="mt-1 text-emerald-800/80">
+                      Foto, PDF yoki link yuboring. Menejer tekshiruvdan so'ng bronni tasdiqlaydi.
+                    </p>
+                    <div className="mt-4 space-y-3">
+                      <input
+                        key={proofInputKey}
+                        type="file"
+                        accept="image/*,application/pdf"
+                        onChange={(event) => setProofFile(event.target.files?.[0] ?? null)}
+                        className="w-full rounded-2xl border border-black/10 bg-white px-4 py-3 text-ink outline-none transition focus:border-pine"
+                      />
+                      <input
+                        value={proofLink}
+                        onChange={(event) => setProofLink(event.target.value)}
+                        placeholder="Yoki proof link kiriting"
+                        className="w-full rounded-2xl border border-black/10 bg-white px-4 py-3 text-ink outline-none transition focus:border-pine"
+                      />
+                      {proofSuccessMessage ? <p className="text-emerald-700">{proofSuccessMessage}</p> : null}
+                      <button
+                        type="button"
+                        disabled={proofSubmitting}
+                        onClick={() => void handleProofUpload()}
+                        className="inline-flex items-center justify-center gap-2 rounded-full bg-emerald-700 px-5 py-3 text-sm font-medium text-white transition hover:bg-emerald-800 disabled:cursor-not-allowed disabled:bg-emerald-500"
+                      >
+                        {proofSubmitting ? <LoaderCircle className="animate-spin" size={18} /> : <Send size={18} />}
+                        Chekni yuborish
+                      </button>
+                    </div>
                   </div>
                 ) : null}
               </div>

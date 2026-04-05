@@ -1,12 +1,18 @@
-import { createSupabasePublicClient, createTelegramClient, formatAxiosError, readEnv } from "./shared.js";
+import {
+  createSupabasePublicClient,
+  createTelegramClient,
+  formatAxiosError,
+  readEnv,
+} from "./shared.js";
 import { createBooking } from "../services/bookingEngine.js";
-import { notifyManagerAboutBooking } from "../services/managerNotifications.js";
+import { notifyManagerAboutBooking, notifyManagerAboutProof } from "../services/managerNotifications.js";
+import { submitBookingProof, upsertTelegramUser } from "../services/proofService.js";
 
 const BUTTONS = {
-  packages: "\u{1F4E6} Paketlar",
-  availability: "\u{1F4C5} Bo\u2018sh sanalar",
-  booking: "\u{1F4DD} Bron qilish",
-  contact: "\u{1F4DE} Aloqa",
+  packages: "📦 Paketlar",
+  availability: "📅 Bo‘sh sanalar",
+  booking: "📝 Bron qilish",
+  contact: "📞 Aloqa",
 };
 const CALLBACKS = {
   packagePrefix: "package_",
@@ -23,6 +29,9 @@ const MAIN_KEYBOARD = {
   resize_keyboard: true,
   one_time_keyboard: false,
 };
+const BOOKING_ID_PATTERN =
+  /#?([0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12})/i;
+const URL_PATTERN = /https?:\/\/\S+/i;
 const userState = {};
 
 function formatPrice(value) {
@@ -142,6 +151,28 @@ function isValidDateInput(value) {
   return !Number.isNaN(date.getTime()) && date.toISOString().slice(0, 10) === value;
 }
 
+function isValidLink(value) {
+  return /^https?:\/\/\S+$/i.test(String(value ?? "").trim());
+}
+
+function extractBookingId(value) {
+  const match = String(value ?? "").match(BOOKING_ID_PATTERN);
+  return match?.[1] ? String(match[1]) : "";
+}
+
+function extractProofLink(value) {
+  const match = String(value ?? "").match(URL_PATTERN);
+  return match?.[0] ? String(match[0]).trim() : "";
+}
+
+function buildTelegramName(user, fallback = "") {
+  const parts = [user?.first_name, user?.last_name]
+    .map((item) => String(item ?? "").trim())
+    .filter(Boolean);
+
+  return parts.join(" ").trim() || fallback;
+}
+
 function buildPackageInlineKeyboard(packages) {
   return {
     inline_keyboard: packages.map((item) => [
@@ -156,8 +187,8 @@ function buildPackageInlineKeyboard(packages) {
 function buildBookingConfirmationKeyboard() {
   return {
     inline_keyboard: [
-      [{ text: "\u2705 Tasdiqlash", callback_data: CALLBACKS.confirm }],
-      [{ text: "\u274C Bekor qilish", callback_data: CALLBACKS.cancel }],
+      [{ text: "✅ Tasdiqlash", callback_data: CALLBACKS.confirm }],
+      [{ text: "❌ Bekor qilish", callback_data: CALLBACKS.cancel }],
     ],
   };
 }
@@ -196,10 +227,10 @@ function buildPaymentMessage(result) {
   if (payment.instructions) {
     lines.push("");
     lines.push(payment.instructions);
-  } else {
-    lines.push("");
-    lines.push("To'lovni amalga oshirgach, chekni menejerga yuboring.");
   }
+
+  lines.push("");
+  lines.push("💳 To'lovni yakunlash uchun chekni shu chatga foto, PDF yoki link ko'rinishida yuboring.");
 
   return lines.join("\n");
 }
@@ -212,6 +243,14 @@ function chunkItems(items, size) {
   }
 
   return rows;
+}
+
+function getLatestPhoto(message) {
+  if (!Array.isArray(message?.photo) || message.photo.length === 0) {
+    return null;
+  }
+
+  return message.photo[message.photo.length - 1];
 }
 
 export function createCustomerBot() {
@@ -257,8 +296,29 @@ export function createCustomerBot() {
     };
   }
 
-  async function insertBooking(bookingData) {
+  async function syncTelegramUser(message, overrides = {}) {
+    const telegramId = Number(message?.from?.id);
+
+    if (!Number.isInteger(telegramId) || telegramId <= 0) {
+      return null;
+    }
+
+    return upsertTelegramUser({
+      telegramId,
+      name: overrides.name ?? buildTelegramName(message?.from, message?.from?.username ?? ""),
+      phone: overrides.phone,
+      role: "customer",
+    });
+  }
+
+  async function insertBooking(bookingData, updateAuthor) {
+    const userId = await syncTelegramUser(updateAuthor, {
+      name: bookingData.name,
+      phone: bookingData.phone,
+    });
+
     return createBooking({
+      userId,
       package_id: bookingData.package_id,
       name: bookingData.name,
       phone: bookingData.phone,
@@ -281,6 +341,48 @@ export function createCustomerBot() {
     return (data ?? [])
       .map((item) => String(item.date_start ?? "").trim())
       .filter(Boolean);
+  }
+
+  async function downloadTelegramFile(fileId, fallbackName, contentType) {
+    const fileResult = await telegram.getFile(fileId);
+    const filePath = String(fileResult?.result?.file_path ?? "").trim();
+
+    if (!filePath) {
+      throw new Error("Telegram file path topilmadi");
+    }
+
+    const buffer = await telegram.downloadFile(filePath);
+    const fileName = String(fallbackName ?? filePath.split("/").pop() ?? "proof");
+
+    return {
+      buffer,
+      originalName: fileName,
+      contentType: String(contentType ?? "").trim() || undefined,
+    };
+  }
+
+  async function submitProof(chatId, message, bookingId, proofLink = "", file = null) {
+    const context = await submitBookingProof({
+      bookingId,
+      proofLink,
+      file,
+    });
+
+    const state = getChatState(chatId);
+
+    if (state?.step === "proof" && state.data.booking_id === bookingId) {
+      clearChatState(chatId);
+    }
+
+    await syncTelegramUser(message);
+    await telegram.sendMessage(chatId, [
+      "✅ To'lov cheki qabul qilindi.",
+      `Bron ID: ${bookingId}`,
+      "Menejer tasdiqlashini kuting.",
+    ].join("\n"), {
+      reply_markup: MAIN_KEYBOARD,
+    });
+    await notifyManagerAboutProof(context);
   }
 
   async function answerCallbackQuerySafe(callbackQueryId, text) {
@@ -332,7 +434,6 @@ export function createCustomerBot() {
   }
 
   async function sendAvailabilityGuidance(chatId) {
-    clearChatState(chatId);
     await telegram.sendMessage(
       chatId,
       "Bo'sh sanalarni aniqlashtirish uchun operator bilan bog'laning. Aloqa ma'lumotlarini yuboryapman.",
@@ -371,7 +472,7 @@ export function createCustomerBot() {
 
     if (availableDates.length === 0) {
       clearChatState(chatId);
-      await telegram.sendMessage(chatId, "\u274C Hozircha bo\u2018sh sanalar yo'q. Iltimos keyinroq urinib ko'ring.", {
+      await telegram.sendMessage(chatId, "❌ Hozircha bo‘sh sanalar yo'q. Iltimos keyinroq urinib ko'ring.", {
         reply_markup: MAIN_KEYBOARD,
       });
       return false;
@@ -455,6 +556,13 @@ export function createCustomerBot() {
       return true;
     }
 
+    if (state.step === "proof") {
+      await telegram.sendMessage(chatId, "Chekni foto, PDF yoki link ko'rinishida yuboring.", {
+        reply_markup: MAIN_KEYBOARD,
+      });
+      return true;
+    }
+
     return false;
   }
 
@@ -528,7 +636,7 @@ export function createCustomerBot() {
 
     if (!availableDates.includes(selectedDate)) {
       await answerCallbackQuerySafe(callbackQueryId, "Bu sana band.");
-      await promptAvailableDates(chatId, state, "\u274C Bu paket uchun joylar to\u2018lib bo'lgan. Boshqa sana tanlang.");
+      await promptAvailableDates(chatId, state, "❌ Bu paket uchun joylar to‘lib bo'lgan. Boshqa sana tanlang.");
       return true;
     }
 
@@ -565,25 +673,25 @@ export function createCustomerBot() {
     if (data === CALLBACKS.cancel) {
       clearChatState(chatId);
       await answerCallbackQuerySafe(callbackQueryId, "Bekor qilindi.");
-      await telegram.sendMessage(chatId, "\u274C Bekor qilindi", {
+      await telegram.sendMessage(chatId, "❌ Bekor qilindi", {
         reply_markup: MAIN_KEYBOARD,
       });
       return true;
     }
 
     try {
-      const bookingResult = await insertBooking(state.data);
+      const bookingResult = await insertBooking(state.data, callbackQuery);
 
       if (!bookingResult?.success) {
         await answerCallbackQuerySafe(callbackQueryId, "Sana band.");
-        await telegram.sendMessage(chatId, "\u274C Bu paket uchun joylar to\u2018lib bo'lgan. Boshqa sana tanlang.", {
+        await telegram.sendMessage(chatId, "❌ Bu paket uchun joylar to‘lib bo'lgan. Boshqa sana tanlang.", {
           reply_markup: MAIN_KEYBOARD,
         });
         await promptAvailableDates(chatId, state, "Bo'sh sanani tanlang:");
         return true;
       }
 
-      clearChatState(chatId);
+      setChatState(chatId, "proof", { booking_id: bookingResult.bookingId });
       await answerCallbackQuerySafe(callbackQueryId, "So'rovingiz yuborildi.");
       await telegram.sendMessage(chatId, buildPaymentMessage(bookingResult), {
         reply_markup: MAIN_KEYBOARD,
@@ -622,12 +730,74 @@ export function createCustomerBot() {
     }
   }
 
+  async function handleProofMessage(message) {
+    const chatId = message?.chat?.id;
+    const state = getChatState(chatId);
+    const text = String(message?.text ?? "").trim();
+    const caption = String(message?.caption ?? "").trim();
+    const bookingId = state?.step === "proof" ? String(state.data.booking_id ?? "") : extractBookingId(`${caption} ${text}`);
+    const photo = getLatestPhoto(message);
+    const document = message?.document;
+    const proofLink = isValidLink(text) ? text : extractProofLink(`${caption} ${text}`);
+
+    if (!chatId || !bookingId) {
+      return false;
+    }
+
+    try {
+      if (photo?.file_id) {
+        const file = await downloadTelegramFile(photo.file_id, "proof.jpg", "image/jpeg");
+        await submitProof(chatId, message, bookingId, "", file);
+        return true;
+      }
+
+      if (document?.file_id) {
+        const file = await downloadTelegramFile(
+          document.file_id,
+          document.file_name || "proof",
+          document.mime_type || "application/octet-stream",
+        );
+        await submitProof(chatId, message, bookingId, "", file);
+        return true;
+      }
+
+      if (proofLink) {
+        await submitProof(chatId, message, bookingId, proofLink);
+        return true;
+      }
+
+      if (state?.step === "proof") {
+        await telegram.sendMessage(chatId, "Chekni foto, PDF yoki link ko'rinishida yuboring.", {
+          reply_markup: MAIN_KEYBOARD,
+        });
+        return true;
+      }
+    } catch (error) {
+      console.error(`Customer proof submission failed: ${formatAxiosError(error)}`);
+      await telegram.sendMessage(chatId, error instanceof Error ? error.message : "Chekni saqlab bo'lmadi.", {
+        reply_markup: MAIN_KEYBOARD,
+      });
+      return true;
+    }
+
+    return false;
+  }
+
   async function handleMessage(message) {
     const chatId = message?.chat?.id;
     const text = String(message?.text ?? "").trim();
+    const state = getChatState(chatId);
 
-    if (!chatId || !text) {
+    if (!chatId) {
       return;
+    }
+
+    if (message?.from?.id) {
+      try {
+        await syncTelegramUser(message);
+      } catch (error) {
+        console.error(`Customer user sync failed: ${formatAxiosError(error)}`);
+      }
     }
 
     if (isStartCommand(text)) {
@@ -636,13 +806,17 @@ export function createCustomerBot() {
     }
 
     if (text === BUTTONS.packages) {
-      clearChatState(chatId);
+      if (state?.step !== "proof") {
+        clearChatState(chatId);
+      }
       await sendPackages(chatId);
       return;
     }
 
     if (text === BUTTONS.contact) {
-      clearChatState(chatId);
+      if (state?.step !== "proof") {
+        clearChatState(chatId);
+      }
       await sendContacts(chatId);
       return;
     }
@@ -653,11 +827,25 @@ export function createCustomerBot() {
     }
 
     if (text === BUTTONS.availability) {
+      if (state?.step !== "proof") {
+        clearChatState(chatId);
+      }
       await sendAvailabilityGuidance(chatId);
       return;
     }
 
-    if (await advanceBookingConversation(chatId, text)) {
+    if (await handleProofMessage(message)) {
+      return;
+    }
+
+    if (text && (await advanceBookingConversation(chatId, text))) {
+      return;
+    }
+
+    if (state?.step === "proof") {
+      await telegram.sendMessage(chatId, "Chekni yuborish uchun foto, PDF yoki link jo'nating.", {
+        reply_markup: MAIN_KEYBOARD,
+      });
       return;
     }
 

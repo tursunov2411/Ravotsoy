@@ -27,6 +27,18 @@ type BookingCreateResult = {
   payment?: PaymentConfig;
 };
 
+type BookingProofResult = {
+  ok?: boolean;
+  error?: string;
+  context?: {
+    booking?: {
+      id: string;
+      status: string;
+      payment_status: string;
+    };
+  };
+};
+
 function ensureSupabase() {
   if (!supabase) {
     throw new Error("Supabase sozlanmagan.");
@@ -428,6 +440,35 @@ export async function quoteBooking(payload: {
   }
 
   return result;
+}
+
+export async function submitBookingProof(payload: {
+  bookingId: string;
+  file?: File | null;
+  proofLink?: string;
+}) {
+  const formData = new FormData();
+
+  if (payload.file) {
+    formData.append("file", payload.file);
+  }
+
+  if (payload.proofLink?.trim()) {
+    formData.append("proofLink", payload.proofLink.trim());
+  }
+
+  const response = await fetch(`${backendUrl}/api/bookings/${payload.bookingId}/proof`, {
+    method: "POST",
+    body: formData,
+  });
+
+  const result = (await response.json()) as BookingProofResult;
+
+  if (!response.ok || !result.ok) {
+    throw new Error(result.error || "Chekni yuborib bo'lmadi.");
+  }
+
+  return result.context;
 }
 
 export async function getAdminBookings() {
