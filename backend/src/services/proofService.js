@@ -460,6 +460,26 @@ export async function rejectBookingManually(bookingId) {
   return fetchBookingContext(normalizedBookingId);
 }
 
+export async function cancelBookingManually(bookingId) {
+  const normalizedBookingId = requireText(bookingId, "bookingId");
+
+  const { error } = await supabase
+    .from("bookings")
+    .update({
+      status: "cancelled",
+      payment_status: "failed",
+      manager_proof_message_id: null,
+      manager_proof_chat_id: null,
+    })
+    .eq("id", normalizedBookingId);
+
+  if (error) {
+    throw error;
+  }
+
+  return fetchBookingContext(normalizedBookingId);
+}
+
 export async function loadLatestProofAsset(bookingId) {
   const context = await fetchBookingContext(bookingId);
   const proofUrl = String(context?.payment?.proof_url ?? "").trim();

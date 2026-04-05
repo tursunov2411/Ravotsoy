@@ -455,7 +455,7 @@ export async function createBooking(rawRequest) {
   const totalPrice = Number(result.total_price ?? 0);
   const [payment, booking] = await Promise.all([fetchPaymentConfig(totalPrice), fetchBookingDetails(bookingId)]);
 
-  if (booking) {
+  if (booking && rawRequest.notifyManager !== false) {
     await notifyManagerAboutBooking(booking);
   }
 
@@ -466,6 +466,80 @@ export async function createBooking(rawRequest) {
     totalPrice,
     bookingLabel: String(result.booking_label ?? booking?.booking_label ?? summarizeResourceSelections(resourceSelections)),
     payment,
+    booking,
+  };
+}
+
+export async function createOfflineBooking(rawRequest) {
+  const offlinePrice = requirePositiveInteger(
+    rawRequest.totalPrice ?? rawRequest.total_price ?? rawRequest.price,
+    "totalPrice",
+  );
+
+  const created = await createBooking({
+    ...rawRequest,
+    source: "offline",
+    notifyManager: false,
+  });
+
+  if (!created?.success || !created.bookingId) {
+    return created;
+  }
+
+  const bookingId = String(created.bookingId);
+  const { error: bookingError } = await supabase
+    .from("bookings")
+    .update({
+      total_price: offlinePrice,
+      estimated_price: offlinePrice,
+      status: "confirmed",
+      payment_status: "paid",
+    })
+    .eq("id", bookingId);
+
+  if (bookingError) {
+    throw bookingError;
+  }
+
+  const { data: payment } = await supabase
+    .from("payments")
+    .select("id")
+    .eq("booking_id", bookingId)
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  if (payment?.id) {
+    const { error: paymentError } = await supabase
+      .from("payments")
+      .update({
+        amount: offlinePrice,
+        status: "verified",
+      })
+      .eq("id", payment.id);
+
+    if (paymentError) {
+      throw paymentError;
+    }
+  } else {
+    const { error: insertPaymentError } = await supabase
+      .from("payments")
+      .insert({
+        booking_id: bookingId,
+        amount: offlinePrice,
+        status: "verified",
+      });
+
+    if (insertPaymentError) {
+      throw insertPaymentError;
+    }
+  }
+
+  const booking = await fetchBookingDetails(bookingId);
+
+  return {
+    ...created,
+    totalPrice: offlinePrice,
     booking,
   };
 }

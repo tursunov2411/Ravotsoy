@@ -2,6 +2,7 @@ import { createTelegramClient, formatAxiosError, readOptionalEnv } from "./share
 import {
   approveBookingManually,
   approveBookingProof,
+  cancelBookingManually,
   fetchBookingContext,
   loadLatestProofAsset,
   rejectBookingManually,
@@ -30,6 +31,7 @@ import {
   updateResourceDetails,
 } from "../services/businessOps.js";
 import { deleteServiceMedia, getLatestServiceMedia, replaceServiceMedia } from "../services/mediaLibrary.js";
+import { createOfflineBooking, getTripBuilderOptions } from "../services/bookingEngine.js";
 import {
   clearManagerDecisionKeyboard,
   notifyCustomerAboutDecision,
@@ -41,6 +43,7 @@ const BUTTONS = {
   resources: "🏡 Resurslar",
   pricing: "💵 Narxlar",
   payments: "💳 To'lov sozlamalari",
+  offline: "🧍 Offlayn mehmonlar",
   analytics: "📊 Analitika",
   report: "🗂 Hisobotlar",
   status: "🛠 Tizim holati",
@@ -60,6 +63,7 @@ const ACTIONS = {
   resourceImageUpload: "mres_img_up_",
   resourceImageDelete: "mres_img_del_",
   bookingDetail: "mbook_detail_",
+  bookingFree: "mbook_free_",
   pricing: "mpr_",
   pricingBaseUp: "mpr_bu_",
   pricingBaseDown: "mpr_bd_",
@@ -72,6 +76,12 @@ const ACTIONS = {
   report: "mrep_",
   reportRecipientDelete: "mrep_del_",
   payment: "mpay_",
+  offline: "moff_",
+  offlineType: "moff_t_",
+  offlineIncludeTapchan: "moff_it_",
+  offlineQuantity: "moff_q_",
+  offlineDate: "moff_d_",
+  offlineDuration: "moff_n_",
   main: "mmain_",
   resourceCreate: "mres_new_",
   backMain: "mback_main",
@@ -102,6 +112,26 @@ function formatPrice(value) {
   return new Intl.NumberFormat("uz-UZ").format(Number(value ?? 0));
 }
 
+function getTodayTashkent() {
+  return new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Asia/Tashkent",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(new Date());
+}
+
+function addDays(dateText, days) {
+  const date = new Date(`${dateText}T00:00:00+05:00`);
+  date.setUTCDate(date.getUTCDate() + days);
+  return new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Asia/Tashkent",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(date);
+}
+
 function buildMainKeyboard() {
   return {
     inline_keyboard: [
@@ -115,6 +145,9 @@ function buildMainKeyboard() {
       ],
       [
         { text: BUTTONS.payments, callback_data: `${ACTIONS.main}payments` },
+        { text: BUTTONS.offline, callback_data: `${ACTIONS.main}offline` },
+      ],
+      [
         { text: BUTTONS.report, callback_data: `${ACTIONS.main}report` },
       ],
       [
@@ -211,8 +244,12 @@ function buildBookingDetailKeyboard(booking) {
     ]);
   }
 
-  if (booking.trackingStatus === "awaiting confirmation") {
+  if (booking.hasProof) {
     actions.unshift([{ text: "🧾 Chekni ko'rish", callback_data: `${ACTIONS.view}${booking.id}` }]);
+  }
+
+  if (booking.trackingStatus !== "rejected" && booking.trackingStatus !== "cancelled") {
+    actions.unshift([{ text: "🔓 Joyni bo'shatish", callback_data: `${ACTIONS.bookingFree}${booking.id}` }]);
   }
 
   actions.push([{ text: "🔙 Orqaga", callback_data: ACTIONS.backMain }]);
@@ -245,6 +282,82 @@ function buildPaymentSettingsKeyboard() {
         { text: "📝 Ko'rsatma", callback_data: `${ACTIONS.payment}instructions` },
       ],
       [{ text: "🔙 Orqaga", callback_data: ACTIONS.backMain }],
+    ],
+  };
+}
+
+function buildOfflineMenuKeyboard() {
+  return {
+    inline_keyboard: [
+      [{ text: "➕ Offlayn bron qo'shish", callback_data: `${ACTIONS.offline}new` }],
+      [{ text: "📚 Offlayn bronlar", callback_data: `${ACTIONS.offline}list` }],
+      [{ text: "🔙 Orqaga", callback_data: ACTIONS.backMain }],
+    ],
+  };
+}
+
+function buildOfflineTypeKeyboard(options) {
+  return {
+    inline_keyboard: [
+      ...options.map((option) => [
+        {
+          text: `${option.label} (${option.availableUnits})`,
+          callback_data: `${ACTIONS.offlineType}${option.resourceType}`,
+        },
+      ]),
+      [{ text: "🔙 Orqaga", callback_data: `${ACTIONS.offline}menu` }],
+    ],
+  };
+}
+
+function buildOfflineTapchanKeyboard(resourceType) {
+  return {
+    inline_keyboard: [
+      [
+        { text: "🌿 Tapchan bilan", callback_data: `${ACTIONS.offlineIncludeTapchan}${resourceType}:with` },
+        { text: "🏠 Tapchansiz", callback_data: `${ACTIONS.offlineIncludeTapchan}${resourceType}:without` },
+      ],
+      [{ text: "🔙 Orqaga", callback_data: `${ACTIONS.offline}new` }],
+    ],
+  };
+}
+
+function buildOfflineQuantityKeyboard(resourceType, maxQuantity) {
+  const quantityButtons = Array.from({ length: Math.max(Math.min(maxQuantity, 6), 1) }, (_, index) => ({
+    text: `${index + 1}`,
+    callback_data: `${ACTIONS.offlineQuantity}${resourceType}:${index + 1}`,
+  }));
+
+  return {
+    inline_keyboard: [
+      quantityButtons,
+      [{ text: "🔙 Orqaga", callback_data: `${ACTIONS.offline}new` }],
+    ],
+  };
+}
+
+function buildOfflineDateKeyboard() {
+  return {
+    inline_keyboard: [
+      [
+        { text: "📅 Bugun", callback_data: `${ACTIONS.offlineDate}today` },
+        { text: "📆 Ertaga", callback_data: `${ACTIONS.offlineDate}tomorrow` },
+      ],
+      [{ text: "🗓 Sana yozaman", callback_data: `${ACTIONS.offlineDate}custom` }],
+      [{ text: "🔙 Orqaga", callback_data: `${ACTIONS.offline}new` }],
+    ],
+  };
+}
+
+function buildOfflineDurationKeyboard() {
+  return {
+    inline_keyboard: [
+      [
+        { text: "1 kecha", callback_data: `${ACTIONS.offlineDuration}1` },
+        { text: "2 kecha", callback_data: `${ACTIONS.offlineDuration}2` },
+        { text: "3 kecha", callback_data: `${ACTIONS.offlineDuration}3` },
+      ],
+      [{ text: "🔙 Orqaga", callback_data: `${ACTIONS.offline}new` }],
     ],
   };
 }
@@ -412,10 +525,13 @@ function formatBookingDetail(booking) {
     `Telefon: ${booking.phone || "Ko'rsatilmagan"}`,
     `Tanlov: ${booking.bookingLabel}`,
     `Holat: ${booking.trackingStatus}`,
+    `To'lov holati: ${booking.paymentStatus}`,
     `Manba: ${booking.source}`,
     `Sana: ${booking.dateStart}${booking.dateEnd ? ` - ${booking.dateEnd}` : ""}`,
     `Narx: ${formatPrice(booking.totalPrice)} UZS`,
-  ].join("\n");
+    `Chek: ${booking.proofUrl ? "bor" : "yo'q"}`,
+    booking.proofUrl ? `Chek havolasi: ${booking.proofUrl}` : "",
+  ].filter(Boolean).join("\n");
 }
 
 function formatPaymentSettings(settings) {
@@ -438,6 +554,7 @@ export function createManagerBot() {
   const pendingImageUploads = new Map();
   const pendingRecipientInputs = new Map();
   const pendingPaymentInputs = new Map();
+  const pendingOfflineBookings = new Map();
 
   async function sendManagerMessage(chatId, text, extra = {}) {
     if (!telegram) {
@@ -585,6 +702,29 @@ export function createManagerBot() {
     }
   }
 
+  async function showOfflineMenu(chatId) {
+    await sendManagerMessage(chatId, "🧍 Offlayn mehmonlar\n\nBu bo'limdan menejer qo'lda bron kiritadi va offlayn bronlarni ko'radi.", {
+      reply_markup: buildOfflineMenuKeyboard(),
+    });
+  }
+
+  async function showOfflineTypeMenu(chatId) {
+    const options = await getTripBuilderOptions();
+    const filtered = options.filter((item) => item.availableUnits > 0);
+
+    pendingOfflineBookings.set(chatId, { step: "resourceType", options: filtered });
+    await sendManagerMessage(chatId, "🏷 Offlayn bron uchun xizmat turini tanlang.", {
+      reply_markup: buildOfflineTypeKeyboard(filtered),
+    });
+  }
+
+  async function showOfflineBookings(chatId) {
+    const bookings = await listBookingsForManager({ source: "offline", limit: 12 });
+    await sendManagerMessage(chatId, formatBookingList("🧍 Offlayn bronlar", bookings), {
+      reply_markup: bookings.length > 0 ? buildBookingListKeyboard(bookings) : buildOfflineMenuKeyboard(),
+    });
+  }
+
   async function showFilteredBookings(chatId, key) {
     if (key === "today") {
       const bookings = await listBookingsForManager({
@@ -658,8 +798,11 @@ export function createManagerBot() {
         : booking.status === "confirmed" || booking.status === "completed"
           ? "confirmed"
           : booking.status === "rejected" || booking.status === "cancelled"
-            ? "rejected"
+            ? booking.status
             : "pending",
+      paymentStatus: booking.payment_status,
+      proofUrl: context.payment?.proof_url || "",
+      hasProof: Boolean(context.payment?.proof_url),
       source: booking.source,
       dateStart: booking.date_start,
       dateEnd: booking.date_end,
@@ -854,6 +997,11 @@ export function createManagerBot() {
           return true;
         }
 
+        if (key === "offline") {
+          await showOfflineMenu(chatId);
+          return true;
+        }
+
         if (key === "analytics") {
           await showAnalyticsMenu(chatId);
           return true;
@@ -891,6 +1039,14 @@ export function createManagerBot() {
       if (data.startsWith(ACTIONS.bookingDetail)) {
         await answerCallbackQuery(callbackQueryId, "Bron tafsilotlari");
         await showBookingDetail(chatId, data.slice(ACTIONS.bookingDetail.length));
+        return true;
+      }
+
+      if (data.startsWith(ACTIONS.bookingFree)) {
+        const bookingId = data.slice(ACTIONS.bookingFree.length);
+        await cancelBookingManually(bookingId);
+        await answerCallbackQuery(callbackQueryId, "Joy bo'shatildi");
+        await showBookingDetail(chatId, bookingId);
         return true;
       }
 
@@ -954,6 +1110,141 @@ export function createManagerBot() {
         await removeReportRecipient(data.slice(ACTIONS.reportRecipientDelete.length));
         await answerCallbackQuery(callbackQueryId, "Qabul qiluvchi o'chirildi");
         await showReportRecipientsMenu(chatId);
+        return true;
+      }
+
+      if (data === `${ACTIONS.offline}menu`) {
+        await answerCallbackQuery(callbackQueryId, "Offlayn mehmonlar");
+        await showOfflineMenu(chatId);
+        return true;
+      }
+
+      if (data === `${ACTIONS.offline}new`) {
+        await answerCallbackQuery(callbackQueryId, "Yangi offlayn bron");
+        await showOfflineTypeMenu(chatId);
+        return true;
+      }
+
+      if (data === `${ACTIONS.offline}list`) {
+        await answerCallbackQuery(callbackQueryId, "Offlayn bronlar");
+        await showOfflineBookings(chatId);
+        return true;
+      }
+
+      if (data.startsWith(ACTIONS.offlineType)) {
+        const resourceType = data.slice(ACTIONS.offlineType.length);
+        const options = await getTripBuilderOptions();
+        const selected = options.find((item) => item.resourceType === resourceType);
+
+        if (!selected) {
+          await answerCallbackQuery(callbackQueryId, "Resurs turi topilmadi");
+          return true;
+        }
+
+        const nextDraft = {
+          step: selected.includesTapchan ? "tapchanMode" : "quantity",
+          resourceType,
+          label: selected.label,
+          includeTapchan: selected.includesTapchan ? true : undefined,
+          unitPeople: Math.max(Number(selected.maxIncludedPeople ?? selected.unitCapacity ?? 1), 1),
+          maxQuantity: Math.max(Number(selected.availableUnits ?? 1), 1),
+          bookingMode: selected.bookingMode,
+        };
+        pendingOfflineBookings.set(chatId, nextDraft);
+        await answerCallbackQuery(callbackQueryId, selected.label);
+
+        if (selected.includesTapchan) {
+          await sendManagerMessage(chatId, `🏷 ${selected.label} uchun variantni tanlang.`, {
+            reply_markup: buildOfflineTapchanKeyboard(resourceType),
+          });
+        } else {
+          await sendManagerMessage(chatId, `🔢 ${selected.label} sonini tanlang.`, {
+            reply_markup: buildOfflineQuantityKeyboard(resourceType, nextDraft.maxQuantity),
+          });
+        }
+        return true;
+      }
+
+      if (data.startsWith(ACTIONS.offlineIncludeTapchan)) {
+        const payload = data.slice(ACTIONS.offlineIncludeTapchan.length);
+        const [resourceType, mode] = payload.split(":");
+        const draft = pendingOfflineBookings.get(chatId) ?? {};
+        pendingOfflineBookings.set(chatId, {
+          ...draft,
+          resourceType,
+          includeTapchan: mode !== "without",
+          step: "quantity",
+        });
+        await answerCallbackQuery(callbackQueryId, "Variant tanlandi");
+        await sendManagerMessage(chatId, "🔢 Nechta birlik kerak?", {
+          reply_markup: buildOfflineQuantityKeyboard(resourceType, Math.max(Number(draft.maxQuantity ?? 1), 1)),
+        });
+        return true;
+      }
+
+      if (data.startsWith(ACTIONS.offlineQuantity)) {
+        const payload = data.slice(ACTIONS.offlineQuantity.length);
+        const [resourceType, quantityText] = payload.split(":");
+        const draft = pendingOfflineBookings.get(chatId) ?? {};
+        pendingOfflineBookings.set(chatId, {
+          ...draft,
+          resourceType,
+          quantity: Math.max(Number(quantityText ?? 1), 1),
+          step: "date",
+        });
+        await answerCallbackQuery(callbackQueryId, "Soni tanlandi");
+        await sendManagerMessage(chatId, "📅 Boshlanish sanasini tanlang.", {
+          reply_markup: buildOfflineDateKeyboard(),
+        });
+        return true;
+      }
+
+      if (data.startsWith(ACTIONS.offlineDate)) {
+        const key = data.slice(ACTIONS.offlineDate.length);
+        const draft = pendingOfflineBookings.get(chatId) ?? {};
+
+        if (key === "custom") {
+          pendingOfflineBookings.set(chatId, {
+            ...draft,
+            step: "customDate",
+          });
+          await answerCallbackQuery(callbackQueryId, "Sana yozing");
+          await sendManagerMessage(chatId, "🗓 Sanani `YYYY-MM-DD` formatda yuboring.", {
+            parse_mode: "Markdown",
+          });
+          return true;
+        }
+
+        const startDate = key === "tomorrow" ? addDays(getTodayTashkent(), 1) : getTodayTashkent();
+        const nextStep = draft.bookingMode === "stay" ? "duration" : "name";
+        pendingOfflineBookings.set(chatId, {
+          ...draft,
+          startDate,
+          endDate: draft.bookingMode === "stay" ? null : null,
+          step: nextStep,
+        });
+        await answerCallbackQuery(callbackQueryId, "Sana tanlandi");
+
+        if (draft.bookingMode === "stay") {
+          await sendManagerMessage(chatId, "🌙 Necha kecha qoladi?", {
+            reply_markup: buildOfflineDurationKeyboard(),
+          });
+        } else {
+          await sendManagerMessage(chatId, "👤 Mehmon ismini yuboring.");
+        }
+        return true;
+      }
+
+      if (data.startsWith(ACTIONS.offlineDuration)) {
+        const nights = Math.max(Number(data.slice(ACTIONS.offlineDuration.length) || 1), 1);
+        const draft = pendingOfflineBookings.get(chatId) ?? {};
+        pendingOfflineBookings.set(chatId, {
+          ...draft,
+          endDate: addDays(String(draft.startDate ?? getTodayTashkent()), nights),
+          step: "name",
+        });
+        await answerCallbackQuery(callbackQueryId, "Davomiylik tanlandi");
+        await sendManagerMessage(chatId, "👤 Mehmon ismini yuboring.");
         return true;
       }
 
@@ -1138,6 +1429,7 @@ export function createManagerBot() {
         const text = String(message.text ?? "").trim();
         const pendingImageUpload = pendingImageUploads.get(chatId);
         const pendingRecipientInput = pendingRecipientInputs.get(chatId);
+        const pendingOfflineBooking = pendingOfflineBookings.get(chatId);
         const linkedRecipient = await maybeLinkReportRecipient(message);
 
         if (linkedRecipient && (isStartCommand(text) || isHelpCommand(text) || message?.contact)) {
@@ -1230,6 +1522,108 @@ export function createManagerBot() {
           return;
         }
 
+        if (pendingOfflineBooking) {
+          try {
+            if (pendingOfflineBooking.step === "customDate") {
+              if (!/^\d{4}-\d{2}-\d{2}$/.test(text)) {
+                await sendManagerMessage(chatId, "⚠️ Sanani `YYYY-MM-DD` formatda yuboring.", {
+                  parse_mode: "Markdown",
+                });
+                return;
+              }
+
+              const nextStep = pendingOfflineBooking.bookingMode === "stay" ? "duration" : "name";
+              pendingOfflineBookings.set(chatId, {
+                ...pendingOfflineBooking,
+                startDate: text,
+                step: nextStep,
+              });
+
+              if (pendingOfflineBooking.bookingMode === "stay") {
+                await sendManagerMessage(chatId, "🌙 Necha kecha qoladi?", {
+                  reply_markup: buildOfflineDurationKeyboard(),
+                });
+              } else {
+                await sendManagerMessage(chatId, "👤 Mehmon ismini yuboring.");
+              }
+              return;
+            }
+
+            if (pendingOfflineBooking.step === "name") {
+              pendingOfflineBookings.set(chatId, {
+                ...pendingOfflineBooking,
+                name: text,
+                step: "phone",
+              });
+              await sendManagerMessage(chatId, "📞 Telefon raqamini yuboring. Agar kerak bo'lmasa `-` yuboring.", {
+                parse_mode: "Markdown",
+              });
+              return;
+            }
+
+            if (pendingOfflineBooking.step === "phone") {
+              pendingOfflineBookings.set(chatId, {
+                ...pendingOfflineBooking,
+                phone: text === "-" ? "Offlayn mijoz" : text,
+                step: "price",
+              });
+              await sendManagerMessage(chatId, "💵 Yakuniy narxni butun son ko'rinishida yuboring.\n\nMasalan: `450000`", {
+                parse_mode: "Markdown",
+              });
+              return;
+            }
+
+            if (pendingOfflineBooking.step === "price") {
+              const price = Number.parseInt(text.replace(/[^\d]/g, ""), 10);
+
+              if (!Number.isInteger(price) || price <= 0) {
+                await sendManagerMessage(chatId, "⚠️ Narxni to'g'ri yuboring. Masalan: `450000`", {
+                  parse_mode: "Markdown",
+                });
+                return;
+              }
+
+              const bookingResult = await createOfflineBooking({
+                name: pendingOfflineBooking.name,
+                phone: pendingOfflineBooking.phone || "Offlayn mijoz",
+                peopleCount: Math.max(Number(pendingOfflineBooking.unitPeople ?? 1) * Number(pendingOfflineBooking.quantity ?? 1), 1),
+                resourceSelections: [
+                  {
+                    resourceType: pendingOfflineBooking.resourceType,
+                    quantity: Number(pendingOfflineBooking.quantity ?? 1),
+                    includeTapchan: pendingOfflineBooking.includeTapchan,
+                  },
+                ],
+                startDate: pendingOfflineBooking.startDate,
+                endDate: pendingOfflineBooking.endDate,
+                totalPrice: price,
+              });
+
+              pendingOfflineBookings.delete(chatId);
+
+              if (!bookingResult?.success) {
+                await sendManagerMessage(chatId, `❌ ${bookingResult?.message || "Offlayn bronni yaratib bo'lmadi."}`, {
+                  reply_markup: buildOfflineMenuKeyboard(),
+                });
+                return;
+              }
+
+              await sendManagerMessage(chatId, `✅ Offlayn bron yaratildi.\n\nID: ${bookingResult.bookingId}\nNarx: ${formatPrice(price)} UZS`, {
+                reply_markup: buildOfflineMenuKeyboard(),
+              });
+              await showBookingDetail(chatId, bookingResult.bookingId);
+              return;
+            }
+          } catch (error) {
+            console.error(`Offline booking flow failed: ${formatAxiosError(error)}`);
+            pendingOfflineBookings.delete(chatId);
+            await sendManagerMessage(chatId, error instanceof Error ? `❌ ${error.message}` : "❌ Offlayn bronni yaratib bo'lmadi.", {
+              reply_markup: buildOfflineMenuKeyboard(),
+            });
+            return;
+          }
+        }
+
         if (isStartCommand(text) || isHelpCommand(text)) {
           await showMainMenu(chatId, "👋 Manager panel tayyor.\n\nBarcha boshqaruv tugmalar orqali ishlaydi.");
           return;
@@ -1252,6 +1646,11 @@ export function createManagerBot() {
 
         if (text === BUTTONS.payments) {
           await showPaymentSettingsMenu(chatId);
+          return;
+        }
+
+        if (text === BUTTONS.offline) {
+          await showOfflineMenu(chatId);
           return;
         }
 

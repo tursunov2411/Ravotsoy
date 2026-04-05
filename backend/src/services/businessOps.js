@@ -236,6 +236,7 @@ async function fetchBookingsBetween(startIso, endIso) {
     .select(
       "id, booking_label, name, phone, source, status, payment_status, total_price, estimated_price, date_start, date_end, start_time, end_time, created_at, booking_resources(resource_id, resources(id, type, name, capacity))",
     )
+    .not("status", "in", "(rejected,cancelled)")
     .lt("start_time", endIso)
     .gt("end_time", startIso)
     .order("start_time", { ascending: true });
