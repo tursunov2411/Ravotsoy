@@ -31,6 +31,9 @@ export function HomePage() {
   const hero = media.find((item) => item.type === "hero") ?? media[0];
   const gallery = media.filter((item) => item.type === "gallery");
   const telegramLink = getTelegramLink("Salom, Ravotsoy Dam olish Maskani haqida ma'lumot olmoqchiman.");
+  const mapsEmbedUrl =
+    import.meta.env.VITE_GOOGLE_MAPS_EMBED_URL ||
+    "https://www.google.com/maps?q=Ravotsoy,+Sharof+Rashidov+tuman,+Jizzax,+Uzbekistan&output=embed";
   const galleryItems = useMemo<BentoGalleryItem[]>(() => {
     const spans = [
       "sm:col-span-1 sm:row-span-3 md:col-span-1 md:row-span-3",
@@ -205,7 +208,7 @@ export function HomePage() {
               <div className="h-[420px]">
                 <iframe
                   title="Ravotsoy Dam olish Maskani xaritasi"
-                  src="https://www.google.com/maps?q=Ravotsoy&output=embed"
+                  src={mapsEmbedUrl}
                   className="h-full w-full border-0"
                   loading="lazy"
                   referrerPolicy="no-referrer-when-downgrade"
@@ -224,7 +227,9 @@ export function HomePage() {
               <div className="mt-8 rounded-[28px] bg-pearl p-5">
                 <div className="flex items-center gap-3">
                   <MapPinned className="text-pine" size={20} />
-                  <p className="text-sm font-medium text-ink">Ravotsoy hududi, tabiat qo'ynida joylashgan maskan</p>
+                  <p className="text-sm font-medium text-ink">
+                    Ravotsoy hududi, Sharof Rashidov tumani, Jizzax tomoni
+                  </p>
                 </div>
               </div>
 

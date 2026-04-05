@@ -30,6 +30,7 @@ VITE_SUPABASE_URL=https://your-project.supabase.co
 VITE_SUPABASE_ANON_KEY=your-anon-key
 VITE_TELEGRAM_USERNAME=your_bot_username
 VITE_BACKEND_URL=http://localhost:3001
+VITE_GOOGLE_MAPS_EMBED_URL=https://www.google.com/maps?q=Ravotsoy,+Sharof+Rashidov+tuman,+Jizzax,+Uzbekistan&output=embed
 ```
 
 Izoh:
@@ -38,6 +39,7 @@ Izoh:
 - `VITE_SUPABASE_ANON_KEY` - Supabase `anon` yoki `publishable` public kaliti
 - `VITE_TELEGRAM_USERNAME` - Telegram bot username, `@` belgisiz yoziladi
 - `VITE_BACKEND_URL` - Telegram endpoint ishlaydigan backend URL manzili
+- `VITE_GOOGLE_MAPS_EMBED_URL` - Google Maps embed URL, aniq pin bo'lsa shu yerga qo'yiladi
 
 ### 2. Backend
 

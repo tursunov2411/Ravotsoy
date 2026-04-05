@@ -1,7 +1,8 @@
 import { Button } from "./Button";
-import { Menu, X } from "lucide-react";
+import { Menu, MessageCircleMore, X } from "lucide-react";
 import { useState } from "react";
 import { NavLink, Outlet } from "react-router-dom";
+import { getTelegramLink } from "../lib/utils";
 
 const navigation = [
   { to: "/", label: "Bosh sahifa" },
@@ -12,16 +13,17 @@ const navigation = [
 
 function navClass(isActive: boolean) {
   return isActive
-    ? "rounded-2xl bg-[var(--secondary)] px-4 py-2 text-sm font-semibold text-white shadow-md"
-    : "rounded-2xl px-4 py-2 text-sm font-medium text-ink/70 transition hover:bg-white/75 hover:text-ink";
+    ? "rounded-full bg-[var(--secondary)] px-4 py-2 text-sm font-semibold text-white shadow-md"
+    : "rounded-full px-4 py-2 text-sm font-medium text-ink/70 transition hover:bg-white/75 hover:text-ink";
 }
 
 export function Layout() {
   const [open, setOpen] = useState(false);
+  const telegramLink = getTelegramLink("Salom, Ravotsoy Dam olish Maskani haqida ma'lumot olmoqchiman.");
 
   return (
     <div className="min-h-screen bg-transparent text-ink">
-      <header className="sticky top-0 z-30 border-b border-black/5 bg-white/72 backdrop-blur-2xl">
+      <header className="sticky top-0 z-30 border-b border-black/5 bg-white/68 backdrop-blur-2xl">
         <div className="mx-auto flex max-w-7xl items-center justify-between px-4 py-4 sm:px-6 lg:px-8">
           <NavLink to="/" className="flex items-center gap-3">
             <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-[linear-gradient(135deg,var(--secondary),var(--accent))] text-sm font-semibold text-white shadow-soft">
@@ -33,13 +35,26 @@ export function Layout() {
             </div>
           </NavLink>
 
-          <nav className="hidden items-center gap-2 md:flex">
+          <nav className="hidden items-center gap-2 rounded-full border border-black/5 bg-white/70 px-2 py-2 shadow-soft md:flex">
             {navigation.map((item) => (
               <NavLink key={item.to} to={item.to} className={({ isActive }) => navClass(isActive)}>
                 {item.label}
               </NavLink>
             ))}
           </nav>
+
+          <div className="hidden items-center gap-3 md:flex">
+            <a
+              href={telegramLink}
+              className="inline-flex items-center gap-2 rounded-full border border-black/8 bg-white/80 px-4 py-2 text-sm font-medium text-ink transition hover:bg-white"
+            >
+              <MessageCircleMore size={16} />
+              Telegram
+            </a>
+            <Button to="/bron" className="px-5 py-2.5">
+              Bron qilish
+            </Button>
+          </div>
 
           <button
             type="button"
@@ -64,6 +79,14 @@ export function Layout() {
                   {item.label}
                 </NavLink>
               ))}
+              <a
+                href={telegramLink}
+                className="inline-flex items-center justify-center gap-2 rounded-full border border-black/10 px-4 py-3 text-sm font-medium text-ink"
+                onClick={() => setOpen(false)}
+              >
+                <MessageCircleMore size={16} />
+                Telegram orqali bog'lanish
+              </a>
             </div>
           </div>
         ) : null}
@@ -74,11 +97,25 @@ export function Layout() {
       </main>
 
       <footer className="border-t border-black/5 bg-white/72 backdrop-blur-xl">
-        <div className="mx-auto flex max-w-7xl flex-col gap-3 px-4 py-8 text-sm text-ink/60 sm:px-6 lg:flex-row lg:items-center lg:justify-between lg:px-8">
-          <p>Ravotsoy Dam Olish Maskani. Tabiat bag'rida sokin hordiq.</p>
-          <Button to="/bron" variant="secondary" className="w-full sm:w-auto">
-            Bron qilish sahifasi
-          </Button>
+        <div className="mx-auto grid max-w-7xl gap-6 px-4 py-8 text-sm text-ink/60 sm:px-6 lg:grid-cols-[1fr_auto] lg:items-center lg:px-8">
+          <div>
+            <p className="text-base font-semibold text-ink">Ravotsoy Dam Olish Maskani</p>
+            <p className="mt-2 max-w-2xl leading-7">
+              Tabiat bag'rida sokin hordiq, oilaviy dam olish va tezkor bron uchun zamonaviy maskan.
+            </p>
+          </div>
+          <div className="flex flex-col gap-3 sm:flex-row">
+            <a
+              href={telegramLink}
+              className="inline-flex items-center justify-center gap-2 rounded-full border border-black/10 px-5 py-3 text-sm font-medium text-ink transition hover:bg-white"
+            >
+              <MessageCircleMore size={16} />
+              Telegram
+            </a>
+            <Button to="/bron" variant="secondary" className="w-full sm:w-auto">
+              Bron qilish
+            </Button>
+          </div>
         </div>
       </footer>
     </div>

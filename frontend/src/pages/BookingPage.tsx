@@ -3,6 +3,7 @@ import { type FormEvent, useEffect, useMemo, useState } from "react";
 import { useLocation } from "react-router-dom";
 import { AnimatedSection } from "../components/AnimatedSection";
 import { createBooking, getPackages } from "../lib/api";
+import { hasSupabaseConfig } from "../lib/supabase";
 import type { PackageRecord } from "../lib/types";
 import { calculateNights, formatCurrency, todayIso } from "../lib/utils";
 
@@ -189,23 +190,25 @@ export function BookingPage() {
       estimated_price: estimatedPrice,
     };
 
-    const bookingData = {
-      name: form.customerName.trim(),
-      phone: form.phone.trim(),
-      package_name: selectedPackage.name,
-      type: typeLabel,
-      guests: form.guests,
-      dates: datesLabel,
-      price: estimatedPrice,
-      date_start: bookingPayload.date_start,
-      date_end: bookingPayload.date_end,
-    };
-
     try {
       setSubmitting(true);
       await createBooking(bookingPayload);
-      await sendToTelegram(bookingData);
-      window.alert("So'rov yuborildi!");
+
+      if (!hasSupabaseConfig) {
+        await sendToTelegram({
+          name: form.customerName.trim(),
+          phone: form.phone.trim(),
+          package_name: selectedPackage.name,
+          type: typeLabel,
+          guests: form.guests,
+          dates: datesLabel,
+          price: estimatedPrice,
+          date_start: bookingPayload.date_start,
+          date_end: bookingPayload.date_end,
+        });
+      }
+
+      window.alert("So'rov qabul qilindi. Menejerga yuborish jarayoni boshlandi.");
       setForm({
         packageId: selectedPackage.id,
         customerName: "",
@@ -469,7 +472,7 @@ export function BookingPage() {
             <div className="rounded-[28px] border border-black/5 bg-gradient-to-br from-sand/30 to-white p-5">
               <p className="text-sm font-medium text-ink">Taxminiy narx: {formatCurrency(estimatedPrice)}</p>
               <p className="mt-2 text-sm leading-6 text-ink/60">
-                So'rov yuborilgach, ma'lumotlar bazaga saqlanadi va Telegram orqali menejerga yetkaziladi.
+                So'rov yuborilgach, ma'lumotlar bazaga saqlanadi va Telegram orqali menejerga fon rejimida yetkaziladi.
               </p>
             </div>
 

@@ -20,8 +20,13 @@ export default function App() {
   return (
     <Suspense
       fallback={
-        <div className="mx-auto max-w-7xl px-4 py-16 text-sm text-ink/60 sm:px-6 lg:px-8">
-          Sahifa yuklanmoqda...
+        <div className="mx-auto max-w-7xl px-4 py-16 sm:px-6 lg:px-8">
+          <div className="rounded-[32px] border border-black/5 bg-white/80 p-8 shadow-soft">
+            <div className="h-3 w-28 animate-pulse rounded-full bg-pearl" />
+            <div className="mt-4 h-8 w-64 animate-pulse rounded-full bg-pearl" />
+            <div className="mt-6 h-4 w-full animate-pulse rounded-full bg-pearl" />
+            <div className="mt-3 h-4 w-4/5 animate-pulse rounded-full bg-pearl" />
+          </div>
         </div>
       }
     >
