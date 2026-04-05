@@ -11,7 +11,14 @@ export type PackageRecord = {
   images: string[];
 };
 
-export type BookingStatus = "pending" | "approved" | "rejected";
+export type BookingStatus =
+  | "pending"
+  | "proof_submitted"
+  | "confirmed"
+  | "rejected"
+  | "cancelled"
+  | "completed"
+  | "approved";
 
 export type BookingRecord = {
   id: string;

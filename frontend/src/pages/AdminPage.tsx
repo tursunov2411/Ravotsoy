@@ -257,24 +257,48 @@ function readFaqCtaUrl(section: ContentSection) {
 }
 
 function statusLabel(status: BookingRecord["status"]) {
-  if (status === "approved") {
+  if (status === "approved" || status === "confirmed") {
     return "Tasdiqlangan";
+  }
+
+  if (status === "proof_submitted") {
+    return "To'lov tekshirilmoqda";
   }
 
   if (status === "rejected") {
     return "Rad etilgan";
   }
 
+  if (status === "cancelled") {
+    return "Bekor qilingan";
+  }
+
+  if (status === "completed") {
+    return "Yakunlangan";
+  }
+
   return "Kutilmoqda";
 }
 
 function statusClass(status: BookingRecord["status"]) {
-  if (status === "approved") {
+  if (status === "approved" || status === "confirmed") {
     return "border-emerald-300/40 bg-emerald-500/12 text-emerald-100";
+  }
+
+  if (status === "proof_submitted") {
+    return "border-sky-300/40 bg-sky-500/12 text-sky-100";
   }
 
   if (status === "rejected") {
     return "border-red-300/40 bg-red-500/12 text-red-100";
+  }
+
+  if (status === "cancelled") {
+    return "border-slate-300/40 bg-slate-500/12 text-slate-100";
+  }
+
+  if (status === "completed") {
+    return "border-emerald-300/40 bg-emerald-500/12 text-emerald-100";
   }
 
   return "border-amber-300/40 bg-amber-500/12 text-amber-100";
@@ -693,8 +717,13 @@ export function AdminPage() {
     await runAction(async () => persistSectionOrder(nextSections), "Bo'limlar tartibi yangilandi.");
   };
 
-  const pendingCount = bookings.filter((booking) => booking.status === "pending").length;
-  const approvedCount = bookings.filter((booking) => booking.status === "approved").length;
+  const pendingCount = bookings.filter(
+    (booking) => booking.status === "pending" || booking.status === "proof_submitted",
+  ).length;
+  const approvedCount = bookings.filter(
+    (booking) =>
+      booking.status === "approved" || booking.status === "confirmed" || booking.status === "completed",
+  ).length;
   const heroMedia = media.filter((item) => item.type === "hero");
   const galleryMedia = media.filter((item) => item.type === "gallery");
   const packageMedia = media.filter((item) => item.type === "package");
@@ -2164,16 +2193,18 @@ export function AdminPage() {
                   </div>
 
                   <div className="flex flex-wrap gap-2 lg:max-w-[220px] lg:justify-end">
-                    <button
-                      type="button"
-                      onClick={() =>
-                        void runAction(() => updateBookingStatus(booking.id, "approved"), "Bron tasdiqlandi.")
-                      }
-                      className="inline-flex items-center gap-1 rounded-full border border-emerald-200 px-4 py-2 text-xs font-medium text-emerald-700 transition hover:bg-emerald-50"
-                    >
-                      <Check size={14} />
-                      Tasdiqlash
-                    </button>
+                    {booking.status === "proof_submitted" ? (
+                      <button
+                        type="button"
+                        onClick={() =>
+                          void runAction(() => updateBookingStatus(booking.id, "confirmed"), "Bron tasdiqlandi.")
+                        }
+                        className="inline-flex items-center gap-1 rounded-full border border-emerald-200 px-4 py-2 text-xs font-medium text-emerald-700 transition hover:bg-emerald-50"
+                      >
+                        <Check size={14} />
+                        Tasdiqlash
+                      </button>
+                    ) : null}
                     <button
                       type="button"
                       onClick={() =>
