@@ -10,11 +10,15 @@ import type {
   MediaAsset,
   MediaKind,
   PaymentConfig,
+  PricingRuleRecord,
   PublicContact,
   PackageInput,
   PackageRecord,
+  ResourceSelection,
   SightseeingPlace,
   SiteSettings,
+  TelegramPrefillResult,
+  TripBuilderOption,
 } from "./types";
 
 type BookingCreateResult = {
@@ -25,6 +29,18 @@ type BookingCreateResult = {
   bookingId?: string;
   totalPrice?: number;
   payment?: PaymentConfig;
+  booking?: {
+    booking_label?: string;
+    resource_summary?: string;
+  };
+};
+
+type TelegramPrefillApiResult = {
+  ok?: boolean;
+  error?: string;
+  token?: string;
+  expiresAt?: string;
+  quote?: BookingQuote;
 };
 
 type BookingProofResult = {
@@ -154,7 +170,7 @@ export async function getPackages() {
   const client = ensureSupabase();
   const { data, error } = await client
     .from("packages")
-    .select("id, name, description, type, base_price, price_per_guest, max_guests, media(url)")
+    .select("id, name, description, type, base_price, price_per_guest, max_guests, resource_type, resource_quantity, media(url)")
     .order("created_at", { ascending: true });
 
   if (error) {
@@ -169,6 +185,8 @@ export async function getPackages() {
     base_price: Number(item.base_price),
     price_per_guest: Number(item.price_per_guest),
     max_guests: Number(item.max_guests),
+    resource_type: item.resource_type ? String(item.resource_type) as PackageRecord["resource_type"] : undefined,
+    resource_quantity: item.resource_quantity ? Number(item.resource_quantity) : undefined,
     images: Array.isArray(item.media)
       ? item.media
           .map((image) => String((image as { url?: string }).url ?? ""))
@@ -296,7 +314,7 @@ export async function getSiteSettings() {
   const { data, error } = await client
     .from("site_settings")
     .select(
-      "id, hotel_name, description, location_url, about_text, hero_images, contact_people, payment_card_number, payment_card_holder, payment_instructions, payment_manager_telegram",
+      "id, hotel_name, description, location_url, about_text, hero_images, contact_people, payment_card_number, payment_card_holder, payment_instructions, payment_manager_telegram, payment_deposit_ratio",
     )
     .eq("id", 1)
     .maybeSingle();
@@ -321,6 +339,7 @@ export async function getSiteSettings() {
     payment_card_holder: data.payment_card_holder ? String(data.payment_card_holder) : "",
     payment_instructions: data.payment_instructions ? String(data.payment_instructions) : "",
     payment_manager_telegram: data.payment_manager_telegram ? String(data.payment_manager_telegram) : "",
+    payment_deposit_ratio: Number(data.payment_deposit_ratio ?? 0.3),
   } satisfies SiteSettings;
 }
 
@@ -348,11 +367,12 @@ export async function upsertSiteSettings(payload: Omit<SiteSettings, "id">) {
         payment_card_holder: payload.payment_card_holder || null,
         payment_instructions: payload.payment_instructions || null,
         payment_manager_telegram: payload.payment_manager_telegram || null,
+        payment_deposit_ratio: payload.payment_deposit_ratio ?? 0.3,
       },
       { onConflict: "id" },
     )
     .select(
-      "id, hotel_name, description, location_url, about_text, hero_images, contact_people, payment_card_number, payment_card_holder, payment_instructions, payment_manager_telegram",
+      "id, hotel_name, description, location_url, about_text, hero_images, contact_people, payment_card_number, payment_card_holder, payment_instructions, payment_manager_telegram, payment_deposit_ratio",
     )
     .single();
 
@@ -372,17 +392,92 @@ export async function upsertSiteSettings(payload: Omit<SiteSettings, "id">) {
     payment_card_holder: data.payment_card_holder ? String(data.payment_card_holder) : "",
     payment_instructions: data.payment_instructions ? String(data.payment_instructions) : "",
     payment_manager_telegram: data.payment_manager_telegram ? String(data.payment_manager_telegram) : "",
+    payment_deposit_ratio: Number(data.payment_deposit_ratio ?? 0.3),
   } satisfies SiteSettings;
 }
 
-export async function createBooking(payload: Omit<BookingRecord, "id" | "status" | "created_at">) {
+export async function getTripBuilderOptions() {
+  if (!hasSupabaseConfig) {
+    return [] satisfies TripBuilderOption[];
+  }
+
+  const response = await fetch(`${backendUrl}/api/trip-builder/options`);
+  const result = (await response.json()) as { ok?: boolean; error?: string; options?: TripBuilderOption[] };
+
+  if (!response.ok || !result.ok) {
+    throw new Error(result.error || "Resurslarni yuklab bo'lmadi.");
+  }
+
+  return Array.isArray(result.options) ? result.options : [];
+}
+
+export async function getPricingRules() {
+  if (!hasSupabaseConfig) {
+    return [] satisfies PricingRuleRecord[];
+  }
+
+  const client = ensureSupabase();
+  const { data, error } = await client
+    .from("pricing_rules")
+    .select(
+      "resource_type, base_price, price_per_extra_person, max_included_people, discount_if_excluded, includes_tapchan",
+    )
+    .order("resource_type", { ascending: true });
+
+  if (error) {
+    throw error;
+  }
+
+  return (data as Array<Record<string, unknown>>).map((item) => ({
+    resource_type: String(item.resource_type ?? ""),
+    base_price: Number(item.base_price ?? 0),
+    price_per_extra_person: Number(item.price_per_extra_person ?? 0),
+    max_included_people: Number(item.max_included_people ?? 0),
+    discount_if_excluded: Number(item.discount_if_excluded ?? 0),
+    includes_tapchan: Boolean(item.includes_tapchan),
+  }));
+}
+
+export async function upsertPricingRule(payload: PricingRuleRecord) {
+  const client = ensureSupabase();
+  const { data, error } = await client
+    .from("pricing_rules")
+    .upsert(payload, { onConflict: "resource_type" })
+    .select(
+      "resource_type, base_price, price_per_extra_person, max_included_people, discount_if_excluded, includes_tapchan",
+    )
+    .single();
+
+  if (error) {
+    throw error;
+  }
+
+  return {
+    resource_type: String(data.resource_type ?? ""),
+    base_price: Number(data.base_price ?? 0),
+    price_per_extra_person: Number(data.price_per_extra_person ?? 0),
+    max_included_people: Number(data.max_included_people ?? 0),
+    discount_if_excluded: Number(data.discount_if_excluded ?? 0),
+    includes_tapchan: Boolean(data.includes_tapchan),
+  } satisfies PricingRuleRecord;
+}
+
+export async function createBooking(payload: {
+  resourceSelections: ResourceSelection[];
+  name: string;
+  phone: string;
+  email?: string;
+  guests: number;
+  date_start: string;
+  date_end?: string | null;
+}) {
   if (!hasSupabaseConfig) {
     return {
       ok: true,
       success: true,
       available: true,
       bookingId: crypto.randomUUID(),
-      totalPrice: payload.estimated_price,
+      totalPrice: 0,
       payment: undefined,
     } satisfies BookingCreateResult;
   }
@@ -393,7 +488,7 @@ export async function createBooking(payload: Omit<BookingRecord, "id" | "status"
       "Content-Type": "application/json",
     },
     body: JSON.stringify({
-      packageId: payload.package_id,
+      resourceSelections: payload.resourceSelections,
       name: payload.name,
       phone: payload.phone,
       email: payload.email,
@@ -414,7 +509,7 @@ export async function createBooking(payload: Omit<BookingRecord, "id" | "status"
 }
 
 export async function quoteBooking(payload: {
-  package_id: string;
+  resourceSelections: ResourceSelection[];
   guests: number;
   date_start: string;
   date_end?: string | null;
@@ -425,7 +520,7 @@ export async function quoteBooking(payload: {
       "Content-Type": "application/json",
     },
     body: JSON.stringify({
-      packageId: payload.package_id,
+      resourceSelections: payload.resourceSelections,
       peopleCount: payload.guests,
       startDate: payload.date_start,
       endDate: payload.date_end ?? null,
@@ -440,6 +535,39 @@ export async function quoteBooking(payload: {
   }
 
   return result;
+}
+
+export async function createTelegramPrefill(payload: {
+  resourceSelections: ResourceSelection[];
+  guests: number;
+  date_start: string;
+  date_end?: string | null;
+}) {
+  const response = await fetch(`${backendUrl}/api/telegram/prefill`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      resourceSelections: payload.resourceSelections,
+      peopleCount: payload.guests,
+      startDate: payload.date_start,
+      endDate: payload.date_end ?? null,
+      source: "website",
+    }),
+  });
+
+  const result = (await response.json()) as TelegramPrefillApiResult;
+
+  if (!response.ok || !result.ok || !result.token || !result.expiresAt || !result.quote) {
+    throw new Error(result.error || "Telegramga yo'naltirishni tayyorlab bo'lmadi.");
+  }
+
+  return {
+    token: result.token,
+    expiresAt: result.expiresAt,
+    quote: result.quote,
+  } satisfies TelegramPrefillResult;
 }
 
 export async function submitBookingProof(payload: {
@@ -480,7 +608,7 @@ export async function getAdminBookings() {
   const { data, error } = await client
     .from("bookings")
     .select(
-      "id, package_id, name, phone, email, guests, date_start, date_end, estimated_price, status, created_at, packages(name)",
+      "id, booking_label, name, phone, email, guests, date_start, date_end, estimated_price, status, created_at",
     )
     .order("created_at", { ascending: false });
 
@@ -490,8 +618,7 @@ export async function getAdminBookings() {
 
   return (data as Array<Record<string, unknown>>).map((item) => ({
     id: String(item.id),
-    package_id: String(item.package_id),
-    package_name: String((item.packages as { name?: string } | null)?.name ?? ""),
+    booking_label: String(item.booking_label ?? ""),
     name: String(item.name),
     phone: String(item.phone),
     email: item.email ? String(item.email) : "",

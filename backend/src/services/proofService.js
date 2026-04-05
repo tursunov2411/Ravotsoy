@@ -1,4 +1,6 @@
 import { createSupabasePrivilegedClient } from "../bots/shared.js";
+import { summarizeBookingResources, summarizeResourceSelections } from "./bookingMetadata.js";
+import { notifyManagerAboutProof } from "./managerNotifications.js";
 
 const supabase = createSupabasePrivilegedClient();
 const PROOF_BUCKET = "payment-proofs";
@@ -68,6 +70,62 @@ function guessContentType(fileName, fallback = "application/octet-stream") {
 
 function isValidLink(value) {
   return /^https?:\/\/\S+$/i.test(String(value ?? "").trim());
+}
+
+function normalizeRequestedResources(value) {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  return value
+    .map((item) => {
+      const record = item && typeof item === "object" ? item : {};
+      const resourceType = String(record.resourceType ?? record.resource_type ?? "").trim();
+      const quantity = Number.parseInt(String(record.quantity ?? 0), 10);
+
+      if (!resourceType || !Number.isInteger(quantity) || quantity <= 0) {
+        return null;
+      }
+
+      return {
+        resourceType,
+        quantity,
+      };
+    })
+    .filter(Boolean);
+}
+
+function normalizeBooking(data) {
+  if (!data) {
+    return null;
+  }
+
+  const bookingResources = Array.isArray(data.booking_resources) ? data.booking_resources : [];
+  const requestedResources = normalizeRequestedResources(data.requested_resources);
+  const bookingLabel =
+    String(data.booking_label ?? "").trim()
+    || summarizeBookingResources(bookingResources)
+    || summarizeResourceSelections(requestedResources);
+
+  return {
+    id: String(data.id),
+    user_id: data.user_id ? String(data.user_id) : null,
+    booking_label: bookingLabel,
+    resource_summary: bookingLabel,
+    requested_resources: requestedResources,
+    name: String(data.name ?? ""),
+    phone: String(data.phone ?? ""),
+    email: data.email ? String(data.email) : "",
+    guests: Number(data.guests ?? data.people_count ?? 0),
+    date_start: String(data.date_start ?? ""),
+    date_end: data.date_end ? String(data.date_end) : null,
+    start_time: String(data.start_time ?? ""),
+    end_time: String(data.end_time ?? ""),
+    total_price: Number(data.total_price ?? data.estimated_price ?? 0),
+    source: String(data.source ?? "website"),
+    status: String(data.status ?? "pending"),
+    payment_status: String(data.payment_status ?? "awaiting_proof"),
+  };
 }
 
 async function uploadProofFile(bookingId, file) {
@@ -175,7 +233,7 @@ export async function fetchBookingContext(bookingId) {
   const { data, error } = await supabase
     .from("bookings")
     .select(
-      "id, user_id, package_id, name, phone, email, guests, people_count, date_start, date_end, start_time, end_time, total_price, estimated_price, source, status, payment_status, packages(name, type)",
+      "id, user_id, booking_label, requested_resources, name, phone, email, guests, people_count, date_start, date_end, start_time, end_time, total_price, estimated_price, source, status, payment_status, booking_resources(quantity, resources(id, type, name, capacity))",
     )
     .eq("id", normalizedBookingId)
     .maybeSingle();
@@ -191,25 +249,7 @@ export async function fetchBookingContext(bookingId) {
   const [payment, user] = await Promise.all([fetchLatestPayment(normalizedBookingId), fetchTelegramUser(data.user_id)]);
 
   return {
-    booking: {
-      id: String(data.id),
-      user_id: data.user_id ? String(data.user_id) : null,
-      package_id: String(data.package_id),
-      package_name: String((data.packages ?? {}).name ?? ""),
-      type: String((data.packages ?? {}).type ?? ""),
-      name: String(data.name ?? ""),
-      phone: String(data.phone ?? ""),
-      email: data.email ? String(data.email) : "",
-      guests: Number(data.guests ?? data.people_count ?? 0),
-      date_start: String(data.date_start ?? ""),
-      date_end: data.date_end ? String(data.date_end) : null,
-      start_time: String(data.start_time ?? ""),
-      end_time: String(data.end_time ?? ""),
-      total_price: Number(data.total_price ?? data.estimated_price ?? 0),
-      source: String(data.source ?? "website"),
-      status: String(data.status ?? "pending"),
-      payment_status: String(data.payment_status ?? "awaiting_proof"),
-    },
+    booking: normalizeBooking(data),
     payment,
     user,
   };
@@ -240,7 +280,9 @@ export async function submitBookingProof({ bookingId, proofLink, file }) {
     throw new Error(String(data?.message ?? "Proof could not be saved"));
   }
 
-  return fetchBookingContext(normalizedBookingId);
+  const context = await fetchBookingContext(normalizedBookingId);
+  await notifyManagerAboutProof(context);
+  return context;
 }
 
 export async function approveBookingProof(bookingId) {

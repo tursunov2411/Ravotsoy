@@ -35,10 +35,12 @@ import {
   getHomeSections,
   getMediaAssets,
   getPackages,
+  getPricingRules,
   getSiteSettings,
   isAdminUser,
   onAuthChange,
   signOutAdmin,
+  upsertPricingRule,
   updateBookingStatus,
   uploadMediaAsset,
   uploadPackageImage,
@@ -57,6 +59,7 @@ import type {
   MediaKind,
   PackageInput,
   PackageRecord,
+  PricingRuleRecord,
   PublicContact,
   SightseeingPlace,
   SiteSettings,
@@ -83,6 +86,23 @@ function createEmptyPackage(): PackageInput {
   };
 }
 
+function pricingRuleLabel(resourceType: string) {
+  switch (resourceType) {
+    case "room_small":
+      return "Kichik xona";
+    case "room_big":
+      return "Katta xona";
+    case "tapchan_small":
+      return "Kichik tapchan";
+    case "tapchan_big":
+      return "Katta tapchan";
+    case "tapchan_very_big":
+      return "Juda katta tapchan";
+    default:
+      return resourceType;
+  }
+}
+
 const emptySiteSettings: Omit<SiteSettings, "id"> = {
   hotel_name: "",
   description: "",
@@ -94,6 +114,7 @@ const emptySiteSettings: Omit<SiteSettings, "id"> = {
   payment_card_holder: "",
   payment_instructions: "",
   payment_manager_telegram: "",
+  payment_deposit_ratio: 0.3,
 };
 
 const sectionTypeOptions: Array<{ value: ContentSectionType; label: string }> = [
@@ -402,6 +423,7 @@ export function AdminPage() {
   const [media, setMedia] = useState<MediaAsset[]>([]);
   const [homeSections, setHomeSections] = useState<ContentSection[]>([]);
   const [siteSettings, setSiteSettings] = useState<Omit<SiteSettings, "id">>(emptySiteSettings);
+  const [pricingRules, setPricingRules] = useState<PricingRuleRecord[]>([]);
   const [packageForm, setPackageForm] = useState<PackageInput>(createEmptyPackage());
   const [packageImageFiles, setPackageImageFiles] = useState<File[]>([]);
   const [editingPackageId, setEditingPackageId] = useState<string | null>(null);
@@ -433,18 +455,20 @@ export function AdminPage() {
   };
 
   const refresh = async () => {
-    const [packagesData, bookingsData, mediaData, settingsData, sectionsData] = await Promise.all([
+    const [packagesData, bookingsData, mediaData, settingsData, sectionsData, pricingRulesData] = await Promise.all([
       getPackages(),
       getAdminBookings(),
       getMediaAssets(),
       getSiteSettings(),
       getHomeSections(),
+      getPricingRules(),
     ]);
 
     setPackages(packagesData);
     setBookings(bookingsData);
     setMedia(mediaData);
     setHomeSections(sectionsData);
+    setPricingRules(pricingRulesData);
     setSiteSettings({
       hotel_name: settingsData.hotel_name ?? "",
       description: settingsData.description ?? "",
@@ -456,6 +480,7 @@ export function AdminPage() {
       payment_card_holder: settingsData.payment_card_holder ?? "",
       payment_instructions: settingsData.payment_instructions ?? "",
       payment_manager_telegram: settingsData.payment_manager_telegram ?? "",
+      payment_deposit_ratio: settingsData.payment_deposit_ratio ?? 0.3,
     });
   };
 
@@ -564,6 +589,7 @@ export function AdminPage() {
       payment_card_holder: siteSettings.payment_card_holder?.trim() ?? "",
       payment_instructions: siteSettings.payment_instructions?.trim() ?? "",
       payment_manager_telegram: siteSettings.payment_manager_telegram?.trim() ?? "",
+      payment_deposit_ratio: Number(siteSettings.payment_deposit_ratio ?? 0.3),
       contact_people:
         siteSettings.contact_people?.map((item) => ({
           id: item.id,
@@ -585,12 +611,29 @@ export function AdminPage() {
       payment_card_holder: savedSettings.payment_card_holder ?? "",
       payment_instructions: savedSettings.payment_instructions ?? "",
       payment_manager_telegram: savedSettings.payment_manager_telegram ?? "",
+      payment_deposit_ratio: savedSettings.payment_deposit_ratio ?? 0.3,
     });
   };
 
   const handleSiteSettingsSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     await runAction(saveSiteSettings, "Sayt sozlamalari saqlandi.");
+  };
+
+  const savePricingRules = async () => {
+    const savedRules = await Promise.all(
+      pricingRules.map((rule) =>
+        upsertPricingRule({
+          ...rule,
+          base_price: Math.max(Number(rule.base_price || 0), 0),
+          price_per_extra_person: Math.max(Number(rule.price_per_extra_person || 0), 0),
+          max_included_people: Math.max(Number(rule.max_included_people || 0), 1),
+          discount_if_excluded: Math.min(Math.max(Number(rule.discount_if_excluded || 0), 0), 1),
+        }),
+      ),
+    );
+
+    setPricingRules(savedRules);
   };
 
   const handlePackageSubmit = async (event: FormEvent<HTMLFormElement>) => {
@@ -940,7 +983,7 @@ export function AdminPage() {
                       <p className="font-medium text-ink">{booking.name}</p>
                       <span className="text-xs text-ink/45">{statusLabel(booking.status)}</span>
                     </div>
-                    <p className="mt-2 text-sm text-ink/60">{booking.package_name || booking.package_id}</p>
+                    <p className="mt-2 text-sm text-ink/60">{booking.booking_label || booking.package_name || booking.package_id}</p>
                     <p className="mt-1 text-xs text-ink/45">{formatBookingDates(booking)}</p>
                   </div>
                 ))
@@ -1076,6 +1119,28 @@ export function AdminPage() {
                   />
                 </label>
 
+                <label className="space-y-2 text-sm text-ink/70">
+                  <span>Oldindan to'lov ulushi</span>
+                  <input
+                    type="number"
+                    min={10}
+                    max={100}
+                    step={10}
+                    value={Math.round(Number(siteSettings.payment_deposit_ratio ?? 0.3) * 100)}
+                    onChange={(event) =>
+                      setSiteSettings((current) => ({
+                        ...current,
+                        payment_deposit_ratio: Math.min(
+                          Math.max(Number(event.target.value || 0) / 100, 0.1),
+                          1,
+                        ),
+                      }))
+                    }
+                    className={inputClassName()}
+                    placeholder="30"
+                  />
+                </label>
+
                 <label className="space-y-2 text-sm text-ink/70 lg:col-span-2">
                   <span>To'lov ko'rsatmasi</span>
                   <textarea
@@ -1090,6 +1155,120 @@ export function AdminPage() {
                     placeholder="Pul o'tkazilgach, chekni menejerga Telegram orqali yuboring."
                   />
                 </label>
+              </div>
+            </div>
+
+            <div className="space-y-4 rounded-[28px] bg-pearl p-5 lg:col-span-2">
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                <div>
+                  <p className="text-lg font-semibold text-ink">Resurs narxlari</p>
+                  <p className="mt-1 text-sm leading-6 text-ink/58">
+                    Xona va tapchan narxlarini shu yerdan yangilang. Bu qiymatlar sayt va Telegram botga bir xil qo'llanadi.
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => void runAction(savePricingRules, "Narxlar saqlandi.")}
+                  className="inline-flex items-center justify-center gap-2 rounded-full bg-ink px-5 py-3 text-sm font-medium text-white transition hover:bg-pine"
+                >
+                  <Save size={16} />
+                  Narxlarni saqlash
+                </button>
+              </div>
+
+              <div className="grid gap-4 lg:grid-cols-2">
+                {pricingRules.map((rule) => (
+                  <div key={rule.resource_type} className="rounded-[24px] border border-black/8 bg-white/85 p-4">
+                    <p className="text-sm font-semibold text-ink">{pricingRuleLabel(rule.resource_type)}</p>
+                    <div className="mt-4 grid gap-3 sm:grid-cols-2">
+                      <label className="space-y-2 text-sm text-ink/70">
+                        <span>Bazaviy narx</span>
+                        <input
+                          type="number"
+                          min={0}
+                          value={rule.base_price}
+                          onChange={(event) =>
+                            setPricingRules((current) =>
+                              current.map((item) =>
+                                item.resource_type === rule.resource_type
+                                  ? { ...item, base_price: Number(event.target.value) }
+                                  : item,
+                              ),
+                            )
+                          }
+                          className={inputClassName()}
+                        />
+                      </label>
+
+                      <label className="space-y-2 text-sm text-ink/70">
+                        <span>Kiritilgan odam limiti</span>
+                        <input
+                          type="number"
+                          min={1}
+                          value={rule.max_included_people}
+                          onChange={(event) =>
+                            setPricingRules((current) =>
+                              current.map((item) =>
+                                item.resource_type === rule.resource_type
+                                  ? { ...item, max_included_people: Number(event.target.value) }
+                                  : item,
+                              ),
+                            )
+                          }
+                          className={inputClassName()}
+                        />
+                      </label>
+
+                      <label className="space-y-2 text-sm text-ink/70">
+                        <span>Qo'shimcha odam narxi</span>
+                        <input
+                          type="number"
+                          min={0}
+                          value={rule.price_per_extra_person}
+                          onChange={(event) =>
+                            setPricingRules((current) =>
+                              current.map((item) =>
+                                item.resource_type === rule.resource_type
+                                  ? { ...item, price_per_extra_person: Number(event.target.value) }
+                                  : item,
+                              ),
+                            )
+                          }
+                          className={inputClassName()}
+                        />
+                      </label>
+
+                      {rule.includes_tapchan ? (
+                        <label className="space-y-2 text-sm text-ink/70">
+                          <span>Tapchansiz chegirma (%)</span>
+                          <input
+                            type="number"
+                            min={0}
+                            max={100}
+                            step={5}
+                            value={Math.round(rule.discount_if_excluded * 100)}
+                            onChange={(event) =>
+                              setPricingRules((current) =>
+                                current.map((item) =>
+                                  item.resource_type === rule.resource_type
+                                    ? {
+                                        ...item,
+                                        discount_if_excluded: Math.min(
+                                          Math.max(Number(event.target.value || 0) / 100, 0),
+                                          1,
+                                        ),
+                                      }
+                                    : item,
+                                ),
+                              )
+                            }
+                            className={inputClassName()}
+                          />
+                        </label>
+                      ) : null}
+                    </div>
+                  </div>
+                ))}
               </div>
             </div>
 
@@ -2261,7 +2440,7 @@ export function AdminPage() {
                       <div className="rounded-2xl bg-white/85 p-4">
                         <p className="text-xs uppercase tracking-[0.2em] text-ink/40">Paket</p>
                         <p className="mt-2 text-sm font-medium text-ink">
-                          {booking.package_name || booking.package_id}
+                          {booking.booking_label || booking.package_name || booking.package_id}
                         </p>
                       </div>
                       <div className="rounded-2xl bg-white/85 p-4">
@@ -2342,7 +2521,7 @@ export function AdminPage() {
                       <p className="font-medium">{booking.name}</p>
                       <span className="text-xs text-white/65">{statusLabel(booking.status)}</span>
                     </div>
-                    <p className="mt-2 text-sm text-white/70">{booking.package_name || booking.package_id}</p>
+                    <p className="mt-2 text-sm text-white/70">{booking.booking_label || booking.package_name || booking.package_id}</p>
                     <p className="mt-1 text-xs text-white/55">{formatBookingDates(booking)}</p>
                   </div>
                 ))}

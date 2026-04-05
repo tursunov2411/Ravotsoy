@@ -3,9 +3,6 @@ import { Route, Routes } from "react-router-dom";
 import { Layout } from "./components/Layout";
 
 const HomePage = lazy(() => import("./pages/HomePage").then((module) => ({ default: module.HomePage })));
-const PackagesPage = lazy(() =>
-  import("./pages/PackagesPage").then((module) => ({ default: module.PackagesPage })),
-);
 const BookingPage = lazy(() =>
   import("./pages/BookingPage").then((module) => ({ default: module.BookingPage })),
 );
@@ -33,7 +30,6 @@ export default function App() {
       <Routes>
         <Route element={<Layout />}>
           <Route path="/" element={<HomePage />} />
-          <Route path="/paketlar" element={<PackagesPage />} />
           <Route path="/bron" element={<BookingPage />} />
           <Route path="/admin-login" element={<AdminLogin />} />
           <Route path="/admin" element={<AdminPage />} />

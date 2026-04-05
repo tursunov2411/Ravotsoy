@@ -16,9 +16,17 @@ function isStartCommand(text) {
   return /^\/start(?:@\w+)?(?:\s|$)/i.test(text);
 }
 
+function isHelpCommand(text) {
+  return /^\/help(?:@\w+)?(?:\s|$)/i.test(String(text ?? "").trim());
+}
+
 function getBookingId(callbackData, prefix) {
   const data = String(callbackData ?? "");
   return data.startsWith(prefix) ? data.slice(prefix.length) : "";
+}
+
+function getBookingLabel(booking) {
+  return booking?.booking_label || booking?.resource_summary || "Ko'rsatilmagan";
 }
 
 function formatDecisionMessage(context, approved) {
@@ -29,10 +37,10 @@ function formatDecisionMessage(context, approved) {
   }
 
   return [
-    approved ? "✅ Booking confirmed" : "❌ Booking rejected",
+    approved ? "Booking confirmed" : "Booking rejected",
     `Bron ID: ${booking.id}`,
     `Mijoz: ${booking.name || "Ko'rsatilmagan"}`,
-    `Paket: ${booking.package_name || booking.package_id || "Ko'rsatilmagan"}`,
+    `Tanlov: ${getBookingLabel(booking)}`,
   ].join("\n");
 }
 
@@ -105,7 +113,7 @@ export function createManagerBot() {
     try {
       const context = approved ? await approveBookingProof(bookingId) : await rejectBookingProof(bookingId);
 
-      await clearManagerDecisionKeyboard(chatId, messageId);
+      await clearManagerDecisionKeyboard(chatId, messageId, bookingId);
       await answerCallbackQuery(callbackQueryId, approved ? "Bron tasdiqlandi." : "Bron rad etildi.");
       await sendManagerMessage(chatId, formatDecisionMessage(context, approved));
       await notifyCustomerAboutDecision(context, approved);
@@ -129,6 +137,11 @@ export function createManagerBot() {
 
         if (isStartCommand(text)) {
           await sendManagerMessage(chatId, "Manager bot tayyor. Qarorlarni inline tugmalar orqali boshqaring.");
+          return;
+        }
+
+        if (isHelpCommand(text)) {
+          await sendManagerMessage(chatId, "Yangi bron va to'lov chek xabarlari shu botga inline tugmalar bilan keladi.");
           return;
         }
 

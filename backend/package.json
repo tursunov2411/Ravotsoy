@@ -7,7 +7,8 @@
     "start": "node index.js",
     "dev": "node server.js",
     "telegram:test": "node scripts/send-telegram-booking.mjs",
-    "telegram:webhook": "node scripts/telegram-webhook-server.mjs"
+    "telegram:webhook": "node scripts/telegram-webhook-server.mjs",
+    "telegram:register": "node scripts/register-telegram-webhooks.mjs"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.101.1",

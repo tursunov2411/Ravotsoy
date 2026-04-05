@@ -15,19 +15,18 @@ import { motion } from "framer-motion";
 import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { AnimatedSection } from "../components/AnimatedSection";
-import { PackageCard } from "../components/PackageCard";
 import InteractiveBentoGallery, {
   type BentoGalleryItem,
 } from "../components/ui/interactive-bento-gallery";
-import { getHomeSections, getMediaAssets, getPackages, getSiteSettings } from "../lib/api";
+import { getHomeSections, getMediaAssets, getSiteSettings, getTripBuilderOptions } from "../lib/api";
 import type {
   AboutStat,
   ContentSection,
   FaqItem,
   MediaAsset,
-  PackageRecord,
   SightseeingPlace,
   SiteSettings,
+  TripBuilderOption,
 } from "../lib/types";
 import { getPhoneLink, getTelegramLink, getTelegramProfileLink, isVideoUrl } from "../lib/utils";
 
@@ -141,7 +140,7 @@ function AboutStatIcon({ icon }: { icon: AboutStat["icon"] }) {
 
 export function HomePage() {
   const [sections, setSections] = useState<ContentSection[]>([]);
-  const [packages, setPackages] = useState<PackageRecord[]>([]);
+  const [tripOptions, setTripOptions] = useState<TripBuilderOption[]>([]);
   const [media, setMedia] = useState<MediaAsset[]>([]);
   const [siteSettings, setSiteSettings] = useState<SiteSettings | null>(null);
   const [heroIndex, setHeroIndex] = useState(0);
@@ -150,14 +149,14 @@ export function HomePage() {
   useEffect(() => {
     const load = async () => {
       try {
-        const [sectionsData, packagesData, mediaData, settingsData] = await Promise.all([
+        const [sectionsData, tripOptionsData, mediaData, settingsData] = await Promise.all([
           getHomeSections(),
-          getPackages(),
+          getTripBuilderOptions(),
           getMediaAssets(),
           getSiteSettings(),
         ]);
         setSections(sectionsData);
-        setPackages(packagesData);
+        setTripOptions(tripOptionsData);
         setMedia(mediaData);
         setSiteSettings(settingsData);
       } catch (error) {
@@ -192,7 +191,7 @@ export function HomePage() {
   const hotelName = siteSettings?.hotel_name?.trim() || "Ravotsoy Dam Olish Maskani";
   const hotelDescription =
     siteSettings?.description?.trim() ||
-    "Tabiat bag'rida dam olish, paketlar va bron ma'lumotlari shu sahifada boshqariladi.";
+    "Tabiat bag'rida dam olish, resurs konfiguratsiyasi va bron ma'lumotlari shu sahifada boshqariladi.";
   const aboutText = siteSettings?.about_text?.trim() || hotelDescription;
   const telegramLink = getTelegramLink(`${hotelName} haqida ma'lumot olmoqchiman.`);
 
@@ -266,9 +265,9 @@ export function HomePage() {
                   ))
                 ) : (
                   <div className="rounded-[32px] bg-[#07111f] p-6 text-white shadow-[0_24px_80px_rgba(15,23,42,0.16)] sm:col-span-2">
-                    <p className="text-5xl font-semibold tracking-tight">{packages.length}+</p>
-                    <p className="mt-3 text-sm uppercase tracking-[0.28em] text-white/58">Paketlar</p>
-                    <p className="mt-3 text-sm leading-7 text-white/72">Tanlangan dam olish paketlari.</p>
+                    <p className="text-5xl font-semibold tracking-tight">{tripOptions.length}+</p>
+                    <p className="mt-3 text-sm uppercase tracking-[0.28em] text-white/58">Resurslar</p>
+                    <p className="mt-3 text-sm leading-7 text-white/72">Faol xonalar va tapchan variantlari.</p>
                   </div>
                 )}
               </div>
@@ -377,18 +376,43 @@ export function HomePage() {
       return (
         <AnimatedSection key={section.id} className="mt-16">
           <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
-            <SectionHeading eyebrow={section.eyebrow} title={section.title} description={section.description} />
-            <Link to="/paketlar" className="inline-flex items-center gap-2 text-sm font-medium text-ink/60">
-              Barcha paketlar
+            <SectionHeading
+              eyebrow={section.eyebrow || "Joylar"}
+              title={section.title || "Resurs konfiguratori"}
+              description={
+                section.description
+                || "Xona va tapchanlarni tanlang, narxni hisoblang va bronni Telegram bot orqali yakunlang."
+              }
+            />
+            <Link to="/bron" className="inline-flex items-center gap-2 text-sm font-medium text-ink/60">
+              Konfiguratorga o'tish
               <ArrowRight size={16} />
             </Link>
           </div>
           <div className="mt-8 grid gap-6 lg:grid-cols-3">
-            {packages.length > 0 ? (
-              packages.slice(0, 3).map((item) => <PackageCard key={item.id} item={item} />)
+            {tripOptions.length > 0 ? (
+              tripOptions.slice(0, 3).map((item) => (
+                <div key={item.resourceType} className="rounded-[32px] border border-black/5 bg-white p-6 shadow-soft">
+                  <p className="text-xs uppercase tracking-[0.28em] text-ink/35">
+                    {item.bookingMode === "stay" ? "Tunab qolish" : "Kunlik dam olish"}
+                  </p>
+                  <h3 className="mt-3 text-2xl font-semibold tracking-tight text-ink">{item.label}</h3>
+                  <p className="mt-3 text-sm leading-7 text-ink/60">
+                    {item.availableUnits} ta mavjud, har biri {item.unitCapacity} kishigacha.
+                  </p>
+                  <p className="mt-4 text-lg font-semibold text-ink">{item.basePrice.toLocaleString("uz-UZ")} so'm</p>
+                  <Link
+                    to="/bron"
+                    className="mt-5 inline-flex items-center gap-2 rounded-full bg-ink px-5 py-3 text-sm font-medium text-white transition hover:bg-pine"
+                  >
+                    Tanlash
+                    <ArrowRight size={16} />
+                  </Link>
+                </div>
+              ))
             ) : (
               <div className="rounded-[32px] border border-dashed border-black/10 bg-white p-8 text-sm text-ink/60 lg:col-span-3">
-                Hali paketlar qo'shilmagan.
+                Hali faol resurslar qo'shilmagan.
               </div>
             )}
           </div>
@@ -617,10 +641,10 @@ export function HomePage() {
               className="mt-8 flex flex-col gap-3 sm:flex-row"
             >
               <Link
-                to="/paketlar"
+                to="/bron"
                 className="inline-flex items-center justify-center rounded-full bg-white px-6 py-3 text-sm font-medium text-ink transition hover:bg-pearl"
               >
-                Paketlarni ko'rish
+                Konfiguratorni ochish
               </Link>
               <Link
                 to="/bron"

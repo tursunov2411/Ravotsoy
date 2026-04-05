@@ -1,198 +1,144 @@
-# Ravotsoy Dam Olish Maskani
+# Ravotsoy
 
-Ushbu loyiha turizm biznesi uchun React + Vite + TypeScript + TailwindCSS frontend, Supabase backend va Telegram integratsiyasi uchun Node.js script bilan tayyorlangan.
+Resource-first hospitality booking system for Ravotsoy.
 
-## Tuzilma
+## Stack
 
-- `frontend` - foydalanuvchi interfeysi va admin panel
-- `backend` - Supabase migratsiyalari va Telegram script
+- `frontend`: React + Vite + TypeScript
+- `backend`: Node.js + Express webhook/API server
+- `database`: Supabase PostgreSQL
+- `bots`: Telegram customer bot + Telegram manager bot
 
-## Ishga tushirish
+## Current Architecture
 
-1. `frontend/.env.example` va `backend/.env.example` fayllarini nusxa olib, mos `.env` fayllarni yarating.
-2. Root katalogda `npm install` ishga tushiring.
-3. Frontend uchun `npm run dev` ishga tushiring.
-4. Supabase SQL migratsiyasini `backend/supabase/migrations` ichidan qo'llang.
-5. Supabase Auth orqali foydalanuvchi yarating va `profiles` jadvalida unga `admin` rolini bering.
+- No package-based booking logic is used in the active flow.
+- Website is a configurator only.
+- Booking is finalized in Telegram.
+- Backend is the single source of truth for:
+  - availability
+  - pricing
+  - booking creation
+  - proof submission
+  - manager approval/rejection
 
-## Muhit O'zgaruvchilari
+## Active Resources
 
-### 1. Frontend
+- `room_small`: 2 units, capacity 5 each
+- `room_big`: 2 units, capacity 10 each
+- `tapchan_small`: 3 units, capacity 6 each
+- `tapchan_big`: 2 units, capacity 10 each
+- `tapchan_very_big`: 2 units, capacity 15 each
 
-Fayl yarating:
+## Pricing Model
 
-- `frontend/.env`
+Configured in `pricing_rules`, not hardcoded in the UI.
 
-Namuna:
+- `room_small`: `500000`
+- `room_big`: `800000`
+- room tapchan excluded: `20%` discount
+- `tapchan_small`: `200000` up to 5, then `40000` extra person
+- `tapchan_big`: `350000` up to 8, then `35000` extra person
+- `tapchan_very_big`: `450000` up to 12, then `35000` extra person
+
+Deposit percentage is configured in `site_settings.payment_deposit_ratio`.
+
+## Environment
+
+### Backend
+
+Create `backend/.env`:
+
+```env
+CUSTOMER_BOT_TOKEN=your_customer_bot_token
+MANAGER_BOT_TOKEN=your_manager_bot_token
+CHAT_ID=your_manager_group_chat_id
+PORT=3001
+WEBHOOK_SECRET=your_random_secret
+FRONTEND_URL=https://your-frontend-domain.vercel.app
+BACKEND_PUBLIC_URL=https://your-backend-domain.onrender.com
+SUPABASE_URL=https://your-project.supabase.co
+SUPABASE_ANON_KEY=your_publishable_or_anon_key
+SUPABASE_SERVICE_ROLE_KEY=your_service_role_key
+```
+
+### Frontend
+
+Create `frontend/.env`:
 
 ```env
 VITE_SUPABASE_URL=https://your-project.supabase.co
-VITE_SUPABASE_ANON_KEY=your-anon-key
-VITE_TELEGRAM_USERNAME=your_bot_username
-VITE_BACKEND_URL=http://localhost:3001
-VITE_GOOGLE_MAPS_EMBED_URL=https://www.google.com/maps?q=Ravotsoy,+Sharof+Rashidov+tuman,+Jizzax,+Uzbekistan&output=embed
+VITE_SUPABASE_ANON_KEY=your_publishable_or_anon_key
+VITE_TELEGRAM_USERNAME=your_customer_bot_username
+VITE_BACKEND_URL=https://your-backend-domain.onrender.com
 ```
 
-Izoh:
-
-- `VITE_SUPABASE_URL` - Supabase loyiha URL manzili
-- `VITE_SUPABASE_ANON_KEY` - Supabase `anon` yoki `publishable` public kaliti
-- `VITE_TELEGRAM_USERNAME` - Telegram bot username, `@` belgisiz yoziladi
-- `VITE_BACKEND_URL` - Telegram endpoint ishlaydigan backend URL manzili
-- `VITE_GOOGLE_MAPS_EMBED_URL` - Google Maps embed URL, aniq pin bo'lsa shu yerga qo'yiladi
-
-### 2. Backend
-
-Fayl yarating:
-
-- `backend/.env`
-
-Namuna:
-
-```env
-BOT_TOKEN=your-telegram-bot-token
-CHAT_ID=your-telegram-chat-id
-PORT=3001
-WEBHOOK_SECRET=change-me-to-a-long-random-string
-FRONTEND_URL=http://localhost:5173
-```
-
-Izoh:
-
-- `BOT_TOKEN` - BotFather orqali olingan Telegram bot token
-- `CHAT_ID` - xabar boradigan chat yoki guruh ID
-- `PORT` - Node webhook server porti
-- `WEBHOOK_SECRET` - Supabase webhook va Node server orasidagi maxfiy kalit
-- `FRONTEND_URL` - CORS uchun ruxsat beriladigan frontend domeni
-
-## Supabase Qo'lda Sozlash
-
-### Supabase -> Telegram oqimi
-
-Tizim quyidagicha ishlaydi:
-
-1. Foydalanuvchi bron formasini yuboradi
-2. Bron `Supabase` ichidagi `bookings` jadvaliga saqlanadi
-3. `Supabase` trigger orqali webhook chaqiradi
-4. Sizning `Node.js` backend webhook so'rovini qabul qiladi
-5. `Node.js` backend Telegram API orqali xabar yuboradi
-
-Muhim:
-
-- `Supabase` o'zi Telegram bot token bilan ishlamaydi
-- `Supabase` faqat webhook yuboradi
-- `BOT_TOKEN` va `CHAT_ID` faqat `Node.js backend` ichida saqlanadi
-- `WEBHOOK_SECRET` esa `Supabase` va `Node.js backend` orasidagi himoya kaliti
-
-### 1. SQL Editor orqali qo'llanadigan fayllar
-
-Tartib bilan quyidagilarni ishlating:
-
-1. `backend/supabase/migrations/20260405_init_ravotsoy.sql`
-2. `backend/supabase/migrations/20260405_align_requested_schema.sql`
-3. `backend/supabase/migrations/3_create_booking_telegram_webhook.sql`
-4. `backend/supabase/migrations/4_create_package_images_bucket.sql`
-5. `backend/supabase/migrations/20260405_reconcile_live_schema.sql`
-6. `backend/supabase/migrations/20260405_add_contact_people_to_site_settings.sql`
-
-Oxirgi fayl mavjud projectlarda eski policy va legacy jadval driftlarini tozalaydi.
-
-### 2. Uchinchi SQL faylda almashtiriladigan qiymatlar
-
-`backend/supabase/migrations/3_create_booking_telegram_webhook.sql` ichida quyidagilarni almashtiring:
-
-- `https://YOUR_PUBLIC_NODE_ENDPOINT/telegram-booking`
-- `change-me`
-
-Bu yerda:
-
-- birinchi qiymat - internetdan ochiq Node backend URL bo'lishi kerak
-- ikkinchi qiymat - `backend/.env` ichidagi `WEBHOOK_SECRET` bilan bir xil bo'lishi kerak
-
-Muhim:
-
-- `BOT_TOKEN` va `CHAT_ID` Supabase ichiga yozilmaydi
-- ular Node backend ichidagi `backend/.env` faylda saqlanadi
-- Supabase faqat webhook URL va `WEBHOOK_SECRET` ni biladi
-
-## Admin Foydalanuvchi
-
-1. Supabase Dashboard ichida `Authentication -> Users` bo'limidan foydalanuvchi yarating.
-2. SQL Editor ichida shu foydalanuvchining `profiles.role` qiymatini `admin` qilib yangilang.
-
-Misol:
-
-```sql
-update public.profiles
-set role = 'admin'
-where id = 'YOUR_USER_UUID';
-```
-
-## Lokal Tekshiruv
-
-1. Root ichida `npm install`
-2. Frontend uchun `npm run dev`
-3. Telegram webhook server uchun:
+## Local Run
 
 ```bash
-npm run telegram:webhook --workspace backend
+npm install
+npm run dev
 ```
 
-4. Frontendda bron formasi orqali Telegram tugmasini tekshiring
-5. Supabase `bookings` jadvaliga yozuv tushishini tekshiring
+Backend only:
 
-## Deploymentdan Oldingi Checklist
+```bash
+npm run start --workspace backend
+```
 
-- `frontend/.env` to'ldirilgan
-- `backend/.env` to'ldirilgan
-- Supabase SQL fayllar qo'llangan
-- `profiles` jadvalida admin foydalanuvchi bor
-- `3_create_booking_telegram_webhook.sql` ichidagi webhook URL real public manzilga almashtirilgan
-- `WEBHOOK_SECRET` SQL fayl va backend `.env` ichida bir xil
-- Telegram bot token va chat ID tekshirilgan
+## Important Migrations
 
-## Render Deployment
+The live project already uses the resource-first migrations. The key migration files are:
 
-Backend Render uchun tayyor:
+- `backend/supabase/migrations/20260405_resource_first_trip_builder.sql`
+- `backend/supabase/migrations/20260405_localize_resource_labels.sql`
+- `backend/supabase/migrations/20260405_finalize_resource_flow_and_telegram_idempotency.sql`
+- `backend/supabase/migrations/20260405_fix_quote_trip_booking_aggregation.sql`
+- `backend/supabase/migrations/20260405_label_include_tapchan_choice.sql`
 
-- `backend/index.js` - production entrypoint
-- `backend/package.json` ichida `npm start`
-- `GET /` - health check endpoint
-- `POST /send-telegram` va `POST /telegram/booking` - ishchi endpointlar
+Do not rerun old package-era trigger migrations on a live project.
 
-Render'da quyidagilarni kiriting:
+## Telegram Setup
+
+Register both bot webhooks and command menus:
+
+```bash
+npm run telegram:register --workspace backend
+```
+
+This configures:
+
+- customer bot webhook: `/webhook/customer`
+- manager bot webhook: `/webhook/manager`
+- customer commands: `/start`, `/book`, `/resources`, `/contact`, `/help`
+
+## Deploy
+
+### Render
+
+Backend service:
 
 - Root Directory: `backend`
 - Build Command: `npm install`
 - Start Command: `npm start`
 
-Render environment variables:
+### Vercel
 
-```env
-BOT_TOKEN=your-telegram-bot-token
-CHAT_ID=your-telegram-chat-id
-PORT=3001
-WEBHOOK_SECRET=your-long-random-secret
-FRONTEND_URL=https://your-vercel-domain.vercel.app
-```
+`vercel.json` is already configured to build the frontend from the monorepo root and publish `frontend/dist`.
 
-Frontend production environment:
+## Live Flow
 
-```env
-VITE_SUPABASE_URL=https://your-project.supabase.co
-VITE_SUPABASE_ANON_KEY=your-anon-key
-VITE_TELEGRAM_USERNAME=your_bot_username
-VITE_BACKEND_URL=https://your-render-service.onrender.com
-```
+1. User configures resources on website
+2. Website requests backend quote
+3. Website creates Telegram prefill token
+4. User is redirected to Telegram bot
+5. Bot collects name and phone
+6. Backend creates booking
+7. Bot shows card details and required deposit amount
+8. User uploads proof
+9. Manager bot receives inline controls: approve / reject / view
 
-Supabase SQL Editor ichida `backend/supabase/migrations/3_create_booking_telegram_webhook.sql`
-faylidagi webhook URL ni `https://your-render-service.onrender.com/telegram-booking`
-ko'rinishida almashtiring.
+## Notes
 
-## Asosiy imkoniyatlar
-
-- Paketlar katalogi
-- Narxni avtomatik hisoblaydigan bron formasi
-- Telegram orqali bron yuborish
-- Supabase Auth orqali admin kirishi
-- Paket, bron va media boshqaruvi
+- Duplicate Telegram updates are blocked through stored `telegram_processed_updates`.
+- Old Supabase booking trigger webhook is no longer part of the active flow.
+- Public website package pages were removed from the active app flow.

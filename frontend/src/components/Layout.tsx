@@ -8,8 +8,7 @@ import { getPhoneLink, getTelegramLink } from "../lib/utils";
 
 const navigation = [
   { to: "/", label: "Bosh sahifa" },
-  { to: "/paketlar", label: "Paketlar" },
-  { to: "/bron", label: "Bron qilish" },
+  { to: "/bron", label: "Konfigurator" },
 ];
 
 function navClass(isActive: boolean) {
@@ -25,7 +24,7 @@ export function Layout() {
   const hotelName = siteSettings?.hotel_name?.trim() || "Ravotsoy Dam Olish Maskani";
   const hotelDescription =
     siteSettings?.description?.trim() ||
-    "Tabiat bag'rida dam olish, bron va paket ma'lumotlari shu yerda boshqariladi.";
+    "Tabiat bag'rida dam olish, bron konfiguratsiyasi va aloqa ma'lumotlari shu yerda.";
   const telegramLink = getTelegramLink(`Salom, ${hotelName} haqida ma'lumot olmoqchiman.`);
   const primaryContact = contacts.find((item) => item.phone.trim()) ?? null;
   const primaryPhoneLink = primaryContact ? getPhoneLink(primaryContact.phone) : "";
@@ -80,7 +79,7 @@ export function Layout() {
               </a>
             ) : null}
             <Button to="/bron" className="px-5 py-2.5">
-              Bron qilish
+              Konfigurator
             </Button>
           </div>
 
@@ -164,7 +163,7 @@ export function Layout() {
               </a>
             ) : null}
             <Button to="/bron" variant="secondary" className="w-full sm:w-auto">
-              Bron qilish
+              Konfigurator
             </Button>
             <NavLink
               to="/admin-login"

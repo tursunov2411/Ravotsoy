@@ -109,7 +109,7 @@ export function AdminLogin() {
                 Boshqaruv paneliga xavfsiz kiring
               </h1>
               <p className="mt-4 max-w-xl text-sm leading-8 text-white/72 sm:text-base">
-                Bu sahifa faqat administrator uchun. Kirgandan so'ng bronlar, paketlar va media
+                Bu sahifa faqat administrator uchun. Kirgandan so'ng bronlar, resurs narxlari va media
                 bo'limlari bilan to'liq ishlashingiz mumkin bo'ladi.
               </p>
 
@@ -120,7 +120,7 @@ export function AdminLogin() {
                 </div>
                 <div className="rounded-[28px] border border-white/10 bg-white/8 p-5">
                   <p className="text-xs uppercase tracking-[0.24em] text-white/45">Boshqaruv</p>
-                  <p className="mt-2 text-lg font-semibold">Paketlar va media</p>
+                  <p className="mt-2 text-lg font-semibold">Narxlar va media</p>
                 </div>
               </div>
             </div>

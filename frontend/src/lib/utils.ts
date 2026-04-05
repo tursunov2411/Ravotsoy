@@ -32,6 +32,16 @@ export function getTelegramLink(message: string) {
   return `https://t.me/share/url?url=${encodeURIComponent(window.location.origin)}&text=${encodeURIComponent(message)}`;
 }
 
+export function getTelegramStartLink(token: string) {
+  const username = import.meta.env.VITE_TELEGRAM_USERNAME?.replace("@", "");
+
+  if (!username || !token.trim()) {
+    return "";
+  }
+
+  return `https://t.me/${username}?start=${encodeURIComponent(token.trim())}`;
+}
+
 export function getTelegramProfileLink(value: string) {
   const trimmed = value.trim();
 

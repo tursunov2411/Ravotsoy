@@ -8,3 +8,5 @@ frontend/dist
 backend/node_modules
 *.log
 *.tsbuildinfo
+
+.vercel

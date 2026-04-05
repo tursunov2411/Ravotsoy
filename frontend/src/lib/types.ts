@@ -1,4 +1,10 @@
 export type PackageType = "stay" | "day";
+export type ResourceType =
+  | "room_small"
+  | "room_big"
+  | "tapchan_small"
+  | "tapchan_big"
+  | "tapchan_very_big";
 
 export type PackageRecord = {
   id: string;
@@ -9,6 +15,8 @@ export type PackageRecord = {
   price_per_guest: number;
   max_guests: number;
   images: string[];
+  resource_type?: ResourceType;
+  resource_quantity?: number;
 };
 
 export type BookingStatus =
@@ -22,8 +30,9 @@ export type BookingStatus =
 
 export type BookingRecord = {
   id: string;
-  package_id: string;
+  package_id?: string | null;
   package_name?: string;
+  booking_label?: string;
   name: string;
   phone: string;
   email?: string;
@@ -39,9 +48,45 @@ export type BookingQuote = {
   available: boolean;
   message: string;
   totalPrice: number;
-  resourceType?: string;
+  totalCapacity?: number;
+  bookingLabel?: string;
+  selections?: ResourceSelection[];
+  suggestions?: ResourceSelection[];
+  unavailable?: Array<Record<string, unknown>>;
   startDate: string;
   endDate?: string | null;
+};
+
+export type ResourceSelection = {
+  resourceType: ResourceType | string;
+  quantity: number;
+  label?: string;
+  includeTapchan?: boolean;
+};
+
+export type TripBuilderOption = {
+  resourceType: ResourceType | string;
+  label: string;
+  shortLabel: string;
+  bookingMode: "stay" | "day" | "flex";
+  unitCapacity: number;
+  availableUnits: number;
+  maxQuantity: number;
+  basePrice: number;
+  pricePerExtraPerson: number;
+  maxIncludedPeople: number;
+  includesTapchan: boolean;
+  discountIfExcluded: number;
+  resourceNames: string[];
+};
+
+export type PricingRuleRecord = {
+  resource_type: ResourceType | string;
+  base_price: number;
+  price_per_extra_person: number;
+  max_included_people: number;
+  discount_if_excluded: number;
+  includes_tapchan: boolean;
 };
 
 export type PaymentConfig = {
@@ -50,6 +95,9 @@ export type PaymentConfig = {
   cardHolder?: string;
   instructions?: string;
   managerTelegram?: string;
+  depositRatio?: number;
+  depositPercentage?: number;
+  requiredAmount?: number;
 };
 
 export type MediaKind = "hero" | "gallery" | "package";
@@ -125,4 +173,11 @@ export type SiteSettings = {
   payment_card_holder?: string | null;
   payment_instructions?: string | null;
   payment_manager_telegram?: string | null;
+  payment_deposit_ratio?: number | null;
+};
+
+export type TelegramPrefillResult = {
+  token: string;
+  expiresAt: string;
+  quote: BookingQuote;
 };
