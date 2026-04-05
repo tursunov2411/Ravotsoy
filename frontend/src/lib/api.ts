@@ -56,6 +56,26 @@ type BookingProofResult = {
   };
 };
 
+export type AdminDiagnosticStatus = "ok" | "warning" | "error";
+
+export type AdminDiagnosticCheck = {
+  id: string;
+  label: string;
+  status: AdminDiagnosticStatus;
+  detail: string;
+  durationMs: number;
+};
+
+export type AdminDiagnosticsReport = {
+  ranAt: string;
+  checks: AdminDiagnosticCheck[];
+  summary: {
+    ok: number;
+    warning: number;
+    error: number;
+  };
+};
+
 function ensureSupabase() {
   if (!supabase) {
     throw new Error("Supabase sozlanmagan.");
@@ -161,6 +181,34 @@ function parseContentSection(item: Record<string, unknown>): ContentSection {
     sort_order: Number(item.sort_order ?? 0),
     is_enabled: Boolean(item.is_enabled),
   };
+}
+
+async function runDiagnosticCheck(
+  id: string,
+  label: string,
+  runner: () => Promise<{ status: AdminDiagnosticStatus; detail: string }>,
+) {
+  const startedAt = performance.now();
+
+  try {
+    const result = await runner();
+
+    return {
+      id,
+      label,
+      status: result.status,
+      detail: result.detail,
+      durationMs: Math.round(performance.now() - startedAt),
+    } satisfies AdminDiagnosticCheck;
+  } catch (error) {
+    return {
+      id,
+      label,
+      status: "error",
+      detail: error instanceof Error ? error.message : "Noma'lum xatolik",
+      durationMs: Math.round(performance.now() - startedAt),
+    } satisfies AdminDiagnosticCheck;
+  }
 }
 
 export async function getPackages() {
@@ -553,6 +601,108 @@ export async function getResources() {
     capacity: Number(item.capacity ?? 0),
     is_active: Boolean(item.is_active),
   }));
+}
+
+export async function runAdminDiagnostics(): Promise<AdminDiagnosticsReport> {
+  const checks = await Promise.all([
+    runDiagnosticCheck("backend-health", "Backend xizmati", async () => {
+      const response = await fetch(`${backendUrl}/`);
+      const result = (await response.json()) as {
+        ok?: boolean;
+        service?: string;
+        managerConfigured?: boolean;
+      };
+
+      if (!response.ok || !result.ok) {
+        throw new Error("Backend health endpoint javob bermadi.");
+      }
+
+      return {
+        status: result.managerConfigured ? "ok" : "warning",
+        detail: result.managerConfigured
+          ? `Backend ishlayapti (${result.service ?? "service"}). Manager webhook tayyor.`
+          : "Backend ishlayapti, lekin manager bot sozlamalari to'liq emas.",
+      };
+    }),
+    runDiagnosticCheck("site-settings", "Sayt sozlamalari", async () => {
+      const settings = await getSiteSettings();
+      const warnings = [
+        !settings.hotel_name?.trim() ? "hotel nomi yo'q" : "",
+        !settings.payment_card_number?.trim() ? "karta raqami yo'q" : "",
+        !settings.payment_card_holder?.trim() ? "karta egasi yo'q" : "",
+      ].filter(Boolean);
+
+      return {
+        status: warnings.length > 0 ? "warning" : "ok",
+        detail: warnings.length > 0
+          ? `Sozlamalar yuklandi, lekin ${warnings.join(", ")}.`
+          : "Sozlamalar va payment maydonlari to'liq yuklandi.",
+      };
+    }),
+    runDiagnosticCheck("media-assets", "Media kutubxonasi", async () => {
+      const assets = await getMediaAssets();
+      const heroCount = assets.filter((item) => item.type === "hero").length;
+      const serviceCount = assets.filter((item) => item.type === "service").length;
+
+      return {
+        status: heroCount === 0 || serviceCount === 0 ? "warning" : "ok",
+        detail:
+          heroCount === 0 || serviceCount === 0
+            ? `Media ishlayapti, lekin hero=${heroCount}, service=${serviceCount}.`
+            : `Media query ishladi. Hero=${heroCount}, service=${serviceCount}, jami=${assets.length}.`,
+      };
+    }),
+    runDiagnosticCheck("resources", "Resurslar bazasi", async () => {
+      const resources = await getResources();
+      const activeCount = resources.filter((item) => item.is_active).length;
+
+      return {
+        status: activeCount === 0 ? "warning" : "ok",
+        detail:
+          activeCount === 0
+            ? "Resurslar yuklandi, lekin faol resurs topilmadi."
+            : `Resurslar yuklandi. Faol=${activeCount}, jami=${resources.length}.`,
+      };
+    }),
+    runDiagnosticCheck("trip-builder", "Bronlash konfiguratori", async () => {
+      const response = await fetch(`${backendUrl}/api/trip-builder/options`);
+      const result = (await response.json()) as {
+        ok?: boolean;
+        options?: unknown[];
+        error?: string;
+      };
+
+      if (!response.ok || !result.ok || !Array.isArray(result.options)) {
+        throw new Error(result.error || "Trip builder options olinmadi.");
+      }
+
+      return {
+        status: result.options.length === 0 ? "warning" : "ok",
+        detail:
+          result.options.length === 0
+            ? "Backend javob berdi, lekin bronlash variantlari bo'sh."
+            : `Bronlash variantlari tayyor. Variantlar soni: ${result.options.length}.`,
+      };
+    }),
+    runDiagnosticCheck("admin-bookings", "Admin bronlar oqimi", async () => {
+      const items = await getAdminBookings();
+
+      return {
+        status: "ok",
+        detail: `Admin bronlar query ishladi. Yozuvlar soni: ${items.length}.`,
+      };
+    }),
+  ]);
+
+  return {
+    ranAt: new Date().toISOString(),
+    checks,
+    summary: {
+      ok: checks.filter((item) => item.status === "ok").length,
+      warning: checks.filter((item) => item.status === "warning").length,
+      error: checks.filter((item) => item.status === "error").length,
+    },
+  };
 }
 
 export async function upsertResource(payload: ResourceRecord) {

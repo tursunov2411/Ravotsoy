@@ -40,6 +40,7 @@ import {
   getSiteSettings,
   isAdminUser,
   onAuthChange,
+  runAdminDiagnostics,
   signOutAdmin,
   upsertPricingRule,
   updateBookingStatus,
@@ -51,6 +52,7 @@ import {
   upsertResource,
   upsertSiteSettings,
 } from "../lib/api";
+import type { AdminDiagnosticsReport } from "../lib/api";
 import { hasSupabaseConfig } from "../lib/supabase";
 import type {
   AboutStat,
@@ -378,6 +380,46 @@ function StatCard({ icon, label, value, hint }: StatCardProps) {
   );
 }
 
+function diagnosticsStatusLabel(status: "ok" | "warning" | "error") {
+  if (status === "ok") {
+    return "Sog'lom";
+  }
+
+  if (status === "warning") {
+    return "Ogohlantirish";
+  }
+
+  return "Xatolik";
+}
+
+function diagnosticsStatusClass(status: "ok" | "warning" | "error") {
+  if (status === "ok") {
+    return "border-emerald-200 bg-emerald-50 text-emerald-700";
+  }
+
+  if (status === "warning") {
+    return "border-amber-200 bg-amber-50 text-amber-700";
+  }
+
+  return "border-red-200 bg-red-50 text-red-700";
+}
+
+function formatDiagnosticsTime(value: string) {
+  const parsed = new Date(value);
+
+  if (Number.isNaN(parsed.getTime())) {
+    return "Noma'lum vaqt";
+  }
+
+  return new Intl.DateTimeFormat("uz-UZ", {
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+  }).format(parsed);
+}
+
 type SectionCardProps = {
   title: string;
   description?: string;
@@ -428,7 +470,7 @@ function getErrorMessage(error: unknown) {
 }
 
 type AdminNavItem = {
-  id: "overview" | "settings" | "media" | "homepage" | "packages" | "bookings";
+  id: "overview" | "settings" | "media" | "homepage" | "packages" | "bookings" | "diagnostics";
   label: string;
   icon: typeof House;
   hint: string;
@@ -448,6 +490,8 @@ export function AdminPage() {
   const [siteSettings, setSiteSettings] = useState<Omit<SiteSettings, "id">>(emptySiteSettings);
   const [pricingRules, setPricingRules] = useState<PricingRuleRecord[]>([]);
   const [resources, setResources] = useState<ResourceRecord[]>([]);
+  const [diagnostics, setDiagnostics] = useState<AdminDiagnosticsReport | null>(null);
+  const [diagnosticsLoading, setDiagnosticsLoading] = useState(false);
   const [packageForm, setPackageForm] = useState<PackageInput>(createEmptyPackage());
   const [packageImageFiles, setPackageImageFiles] = useState<File[]>([]);
   const [editingPackageId, setEditingPackageId] = useState<string | null>(null);
@@ -473,6 +517,7 @@ export function AdminPage() {
   const [newSectionType, setNewSectionType] = useState<ContentSectionType>("about");
   const [notice, setNotice] = useState("");
   const [error, setError] = useState("");
+  const [activeAdminSection, setActiveAdminSection] = useState<AdminNavItem["id"]>("overview");
   const editingPackage = useMemo(
     () => packages.find((item) => item.id === editingPackageId) ?? null,
     [packages, editingPackageId],
@@ -487,6 +532,24 @@ export function AdminPage() {
   const resetMessages = () => {
     setError("");
     setNotice("");
+  };
+
+  const loadDiagnostics = async (showSuccessNotice = false) => {
+    setDiagnosticsLoading(true);
+
+    try {
+      const report = await runAdminDiagnostics();
+      setDiagnostics(report);
+
+      if (showSuccessNotice) {
+        setNotice("Diagnostika yangilandi.");
+      }
+    } catch (diagnosticsError) {
+      console.error(diagnosticsError);
+      setError("Diagnostikani tekshirishda xatolik yuz berdi.");
+    } finally {
+      setDiagnosticsLoading(false);
+    }
   };
 
   const refresh = async () => {
@@ -583,6 +646,12 @@ export function AdminPage() {
     const timeout = window.setTimeout(() => setNotice(""), 4000);
     return () => window.clearTimeout(timeout);
   }, [notice]);
+
+  useEffect(() => {
+    if (activeAdminSection === "diagnostics" && !diagnostics && !diagnosticsLoading) {
+      void loadDiagnostics();
+    }
+  }, [activeAdminSection, diagnostics, diagnosticsLoading]);
 
   const runAction = async (action: () => Promise<void>, successText: string) => {
     setWorking(true);
@@ -944,8 +1013,6 @@ export function AdminPage() {
       ) as Record<string, MediaAsset | null>,
     [serviceMedia, serviceResourceTypes],
   );
-  const [activeAdminSection, setActiveAdminSection] = useState<AdminNavItem["id"]>("overview");
-
   const adminNavItems = useMemo<AdminNavItem[]>(
     () => [
       { id: "overview", label: "Dashboard", icon: House, hint: "Umumiy ko'rinish" },
@@ -954,6 +1021,7 @@ export function AdminPage() {
       { id: "homepage", label: "Homepage", icon: PanelsTopLeft, hint: "Bosh sahifa bloklari" },
       { id: "packages", label: "Paketlar", icon: Boxes, hint: "Yaratish va tahrirlash" },
       { id: "bookings", label: "Bronlar", icon: CalendarRange, hint: "So'rovlar va holatlar" },
+      { id: "diagnostics", label: "Diagnostika", icon: ShieldCheck, hint: "Tizim tekshiruvi" },
     ],
     [],
   );
@@ -1145,6 +1213,85 @@ export function AdminPage() {
                   Hozircha yangi bronlar yo'q.
                 </div>
               )}
+            </div>
+          </SectionCard>
+        </div>
+      ) : null}
+
+      {activeAdminSection === "diagnostics" ? (
+        <div className="mt-6 grid gap-6 xl:grid-cols-[0.95fr_1.05fr]">
+          <SectionCard
+            title="Sayt diagnostikasi"
+            description="Frontend admin panel tayangan asosiy oqimlar shu yerda tekshiriladi: backend, Supabase, media, resurslar va bronlash konfiguratori."
+            action={
+              <button
+                type="button"
+                disabled={diagnosticsLoading}
+                onClick={() => void loadDiagnostics(true)}
+                className="inline-flex items-center justify-center gap-2 rounded-full bg-ink px-5 py-3 text-sm font-medium text-white transition hover:bg-pine disabled:cursor-not-allowed disabled:bg-ink/60"
+              >
+                {diagnosticsLoading ? <LoaderCircle size={16} className="animate-spin" /> : <ShieldCheck size={16} />}
+                Qayta tekshirish
+              </button>
+            }
+          >
+            <div className="grid gap-4 sm:grid-cols-3">
+              <div className="rounded-[24px] border border-emerald-200 bg-emerald-50 p-5">
+                <p className="text-xs uppercase tracking-[0.24em] text-emerald-700/70">Sog'lom</p>
+                <p className="mt-3 text-3xl font-semibold text-emerald-700">{diagnostics?.summary.ok ?? 0}</p>
+              </div>
+              <div className="rounded-[24px] border border-amber-200 bg-amber-50 p-5">
+                <p className="text-xs uppercase tracking-[0.24em] text-amber-700/70">Ogohlantirish</p>
+                <p className="mt-3 text-3xl font-semibold text-amber-700">{diagnostics?.summary.warning ?? 0}</p>
+              </div>
+              <div className="rounded-[24px] border border-red-200 bg-red-50 p-5">
+                <p className="text-xs uppercase tracking-[0.24em] text-red-700/70">Xatolik</p>
+                <p className="mt-3 text-3xl font-semibold text-red-700">{diagnostics?.summary.error ?? 0}</p>
+              </div>
+            </div>
+
+            <div className="mt-5 rounded-[24px] border border-black/6 bg-pearl/70 p-5 text-sm text-ink/65">
+              Oxirgi tekshiruv: {diagnostics ? formatDiagnosticsTime(diagnostics.ranAt) : "hali ishga tushirilmagan"}
+            </div>
+          </SectionCard>
+
+          <SectionCard
+            title="Tekshiruv natijalari"
+            description="Har bir satr admin panel ishlatayotgan haqiqiy endpoint yoki query bo'yicha statusni ko'rsatadi."
+          >
+            <div className="grid gap-4">
+              {diagnosticsLoading && !diagnostics ? (
+                <div className="rounded-[24px] border border-dashed border-black/10 bg-pearl/60 p-6 text-sm text-ink/58">
+                  Diagnostika ishga tushmoqda...
+                </div>
+              ) : null}
+
+              {!diagnosticsLoading && diagnostics?.checks.length ? (
+                diagnostics.checks.map((check) => (
+                  <div key={check.id} className="rounded-[24px] border border-black/6 bg-white/90 p-5">
+                    <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                      <div>
+                        <div className="flex items-center gap-3">
+                          <p className="text-base font-semibold text-ink">{check.label}</p>
+                          <span className={cn("inline-flex rounded-full border px-3 py-1 text-xs font-medium", diagnosticsStatusClass(check.status))}>
+                            {diagnosticsStatusLabel(check.status)}
+                          </span>
+                        </div>
+                        <p className="mt-2 text-sm leading-6 text-ink/62">{check.detail}</p>
+                      </div>
+                      <div className="rounded-full bg-pearl px-3 py-1 text-xs text-ink/55">
+                        {check.durationMs} ms
+                      </div>
+                    </div>
+                  </div>
+                ))
+              ) : null}
+
+              {!diagnosticsLoading && !diagnostics ? (
+                <div className="rounded-[24px] border border-dashed border-black/10 bg-pearl/60 p-6 text-sm text-ink/58">
+                  Hali diagnostika natijasi yo'q.
+                </div>
+              ) : null}
             </div>
           </SectionCard>
         </div>
