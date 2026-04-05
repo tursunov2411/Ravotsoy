@@ -1,23 +1,14 @@
 import { ArrowRight, MapPinned, MessageCircleMore, Sparkles, Trees } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { AnimatedSection } from "../components/AnimatedSection";
 import { PackageCard } from "../components/PackageCard";
+import InteractiveBentoGallery, {
+  type BentoGalleryItem,
+} from "../components/ui/interactive-bento-gallery";
 import { getMediaAssets, getPackages } from "../lib/api";
 import type { MediaAsset, PackageRecord } from "../lib/types";
 import { getTelegramLink, isVideoUrl } from "../lib/utils";
-
-function getMediaLabel(type: MediaAsset["type"]) {
-  if (type === "hero") {
-    return "Asosiy media";
-  }
-
-  if (type === "gallery") {
-    return "Galereya";
-  }
-
-  return "Paket rasmi";
-}
 
 export function HomePage() {
   const [packages, setPackages] = useState<PackageRecord[]>([]);
@@ -40,6 +31,28 @@ export function HomePage() {
   const hero = media.find((item) => item.type === "hero") ?? media[0];
   const gallery = media.filter((item) => item.type === "gallery");
   const telegramLink = getTelegramLink("Salom, Ravotsoy Dam olish Maskani haqida ma'lumot olmoqchiman.");
+  const galleryItems = useMemo<BentoGalleryItem[]>(() => {
+    const spans = [
+      "sm:col-span-1 sm:row-span-3 md:col-span-1 md:row-span-3",
+      "sm:col-span-2 sm:row-span-2 md:col-span-2 md:row-span-2",
+      "sm:col-span-1 sm:row-span-2 md:col-span-1 md:row-span-3",
+      "sm:col-span-2 sm:row-span-2 md:col-span-2 md:row-span-2",
+      "sm:col-span-1 sm:row-span-3 md:col-span-1 md:row-span-3",
+      "sm:col-span-1 sm:row-span-2 md:col-span-2 md:row-span-2",
+    ];
+
+    return gallery.map((item, index) => ({
+      id: item.id,
+      type: isVideoUrl(item.url) ? "video" : "image",
+      title: `Ravotsoydan lavha ${index + 1}`,
+      desc:
+        index % 2 === 0
+          ? "Hududning tabiiy manzarasi va osoyishta dam olish muhiti."
+          : "Mehmonlar uchun tayyorlangan qulay maskan va dam olish kayfiyati.",
+      url: item.url,
+      span: spans[index % spans.length],
+    }));
+  }, [gallery]);
 
   return (
     <div className="pb-12">
@@ -167,25 +180,19 @@ export function HomePage() {
             </h2>
           </div>
 
-          <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-            {gallery.map((item, index) => (
-              <div
-                key={item.id}
-                className={`overflow-hidden rounded-[28px] border border-black/5 bg-white shadow-soft ${
-                  index === 0 ? "md:col-span-2" : ""
-                }`}
-              >
-                {isVideoUrl(item.url) ? (
-                  <video src={item.url} controls className="h-80 w-full object-cover" />
-                ) : (
-                  <img src={item.url} alt={getMediaLabel(item.type)} className="h-80 w-full object-cover" />
-                )}
-                <div className="p-5">
-                  <p className="text-sm font-medium text-ink">{getMediaLabel(item.type)}</p>
-                </div>
-              </div>
-            ))}
-          </div>
+          {galleryItems.length > 0 ? (
+            <InteractiveBentoGallery
+              mediaItems={galleryItems}
+              title="Ravotsoy lahzalari"
+              description="Suratlar va videolarni ochib ko'ring, joyini siljitib tanlang va hududdagi muhitni yaqinroq his qiling."
+            />
+          ) : (
+            <div className="rounded-[32px] border border-black/5 bg-white p-8 shadow-soft">
+              <p className="text-sm leading-7 text-ink/60">
+                Hozircha galereya media fayllari qo'shilmagan. Admin panel orqali surat yoki video yuklang.
+              </p>
+            </div>
+          )}
         </AnimatedSection>
 
         <AnimatedSection className="mt-16">

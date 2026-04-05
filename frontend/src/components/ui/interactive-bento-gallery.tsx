@@ -1,0 +1,534 @@
+import { AnimatePresence, motion } from "framer-motion";
+import { ChevronLeft, ChevronRight, Grip, X } from "lucide-react";
+import { useEffect, useMemo, useRef, useState } from "react";
+
+export interface BentoGalleryItem {
+  id: string;
+  type: "image" | "video";
+  title: string;
+  desc: string;
+  url: string;
+  span: string;
+}
+
+type MediaItemProps = {
+  item: BentoGalleryItem;
+  className?: string;
+  onClick?: () => void;
+};
+
+function MediaItem({ item, className = "", onClick }: MediaItemProps) {
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const [isInView, setIsInView] = useState(false);
+  const [isBuffering, setIsBuffering] = useState(item.type === "video");
+
+  useEffect(() => {
+    if (item.type !== "video") {
+      return;
+    }
+
+    const target = videoRef.current;
+
+    if (!target) {
+      return;
+    }
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        for (const entry of entries) {
+          setIsInView(entry.isIntersecting);
+        }
+      },
+      {
+        root: null,
+        rootMargin: "64px",
+        threshold: 0.15,
+      },
+    );
+
+    observer.observe(target);
+
+    return () => {
+      observer.disconnect();
+    };
+  }, [item.type]);
+
+  useEffect(() => {
+    if (item.type !== "video") {
+      return;
+    }
+
+    const target = videoRef.current;
+
+    if (!target) {
+      return;
+    }
+
+    let mounted = true;
+
+    const playVideo = async () => {
+      if (!isInView || !mounted) {
+        return;
+      }
+
+      try {
+        if (target.readyState >= 3) {
+          setIsBuffering(false);
+          await target.play();
+          return;
+        }
+
+        setIsBuffering(true);
+
+        await new Promise<void>((resolve) => {
+          const handleCanPlay = () => {
+            target.removeEventListener("canplay", handleCanPlay);
+            resolve();
+          };
+
+          target.addEventListener("canplay", handleCanPlay);
+        });
+
+        if (mounted) {
+          setIsBuffering(false);
+          await target.play();
+        }
+      } catch (error) {
+        console.warn("Video playback failed:", error);
+      }
+    };
+
+    if (isInView) {
+      void playVideo();
+    } else {
+      target.pause();
+    }
+
+    return () => {
+      mounted = false;
+      target.pause();
+    };
+  }, [isInView, item.type]);
+
+  if (item.type === "video") {
+    return (
+      <div className={`relative overflow-hidden ${className}`}>
+        <video
+          ref={videoRef}
+          className="h-full w-full cursor-pointer object-cover"
+          onClick={onClick}
+          playsInline
+          muted
+          loop
+          preload="metadata"
+          style={{
+            opacity: isBuffering ? 0.88 : 1,
+            transition: "opacity 0.25s ease",
+          }}
+        >
+          <source src={item.url} type="video/mp4" />
+        </video>
+        {isBuffering ? (
+          <div className="absolute inset-0 flex items-center justify-center bg-black/10">
+            <div className="h-7 w-7 rounded-full border-2 border-white/35 border-t-white animate-spin" />
+          </div>
+        ) : null}
+      </div>
+    );
+  }
+
+  return (
+    <img
+      src={item.url}
+      alt={item.title}
+      className={`${className} cursor-pointer object-cover`}
+      onClick={onClick}
+      loading="lazy"
+      decoding="async"
+    />
+  );
+}
+
+type GalleryModalProps = {
+  selectedItem: BentoGalleryItem;
+  isOpen: boolean;
+  onClose: () => void;
+  setSelectedItem: (item: BentoGalleryItem | null) => void;
+  mediaItems: BentoGalleryItem[];
+  onPrevious: () => void;
+  onNext: () => void;
+};
+
+function GalleryModal({
+  selectedItem,
+  isOpen,
+  onClose,
+  setSelectedItem,
+  mediaItems,
+  onPrevious,
+  onNext,
+}: GalleryModalProps) {
+  const [dockPosition, setDockPosition] = useState({ x: 0, y: 0 });
+
+  if (!isOpen) {
+    return null;
+  }
+
+  return (
+    <>
+      <motion.div
+        className="fixed inset-0 z-40 bg-[rgba(12,20,33,0.38)] backdrop-blur-xl"
+        initial={{ opacity: 0 }}
+        animate={{ opacity: 1 }}
+        exit={{ opacity: 0 }}
+        onClick={onClose}
+      />
+
+      <motion.div
+        initial={{ scale: 0.98, opacity: 0, y: 18 }}
+        animate={{ scale: 1, opacity: 1, y: 0 }}
+        exit={{ scale: 0.98, opacity: 0, y: 18 }}
+        transition={{ type: "spring", stiffness: 320, damping: 28 }}
+        className="fixed inset-0 z-50 flex items-center justify-center px-4 py-8 sm:px-6"
+      >
+        <div className="relative flex h-full w-full max-w-6xl flex-col overflow-hidden rounded-[32px] border border-white/45 bg-white/75 shadow-[0_24px_80px_rgba(15,23,42,0.18)] backdrop-blur-2xl">
+          <div className="flex-1 p-3 sm:p-5">
+            <AnimatePresence mode="wait">
+              <motion.div
+                key={selectedItem.id}
+                className="relative flex h-full min-h-[340px] items-center justify-center overflow-hidden rounded-[28px] bg-slate-100"
+                initial={{ opacity: 0, scale: 0.985 }}
+                animate={{ opacity: 1, scale: 1 }}
+                exit={{ opacity: 0, scale: 0.985 }}
+                transition={{ duration: 0.22, ease: [0.16, 1, 0.3, 1] }}
+              >
+                <MediaItem
+                  item={selectedItem}
+                  className="h-full max-h-[70vh] w-full"
+                  onClick={onClose}
+                />
+                <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/70 via-black/35 to-transparent p-4 sm:p-6">
+                  <h3 className="text-lg font-semibold text-white sm:text-2xl">{selectedItem.title}</h3>
+                  <p className="mt-1 max-w-2xl text-sm leading-6 text-white/80 sm:text-base">
+                    {selectedItem.desc}
+                  </p>
+                </div>
+
+                <div className="pointer-events-none absolute inset-y-0 left-0 right-0 flex items-center justify-between px-3 sm:px-5">
+                  <motion.button
+                    type="button"
+                    className="pointer-events-auto inline-flex h-11 w-11 items-center justify-center rounded-full bg-white/82 text-slate-700 shadow-lg transition hover:bg-white"
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      onPrevious();
+                    }}
+                    whileHover={{ scale: 1.05 }}
+                    whileTap={{ scale: 0.95 }}
+                  >
+                    <ChevronLeft className="h-5 w-5" />
+                  </motion.button>
+
+                  <motion.button
+                    type="button"
+                    className="pointer-events-auto inline-flex h-11 w-11 items-center justify-center rounded-full bg-white/82 text-slate-700 shadow-lg transition hover:bg-white"
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      onNext();
+                    }}
+                    whileHover={{ scale: 1.05 }}
+                    whileTap={{ scale: 0.95 }}
+                  >
+                    <ChevronRight className="h-5 w-5" />
+                  </motion.button>
+                </div>
+              </motion.div>
+            </AnimatePresence>
+          </div>
+
+          <motion.button
+            className="absolute right-4 top-4 inline-flex h-10 w-10 items-center justify-center rounded-full bg-white/85 text-slate-700 shadow-lg transition hover:bg-white"
+            onClick={onClose}
+            whileHover={{ scale: 1.06 }}
+            whileTap={{ scale: 0.94 }}
+          >
+            <X className="h-4 w-4" />
+          </motion.button>
+        </div>
+
+        <motion.div
+          drag
+          dragMomentum={false}
+          dragElastic={0.1}
+          initial={false}
+          animate={{ x: dockPosition.x, y: dockPosition.y }}
+          onDragEnd={(_, info) => {
+            setDockPosition((prev) => ({
+              x: prev.x + info.offset.x,
+              y: prev.y + info.offset.y,
+            }));
+          }}
+          className="pointer-events-auto fixed bottom-5 left-1/2 z-[60] -translate-x-1/2 touch-none"
+        >
+          <div className="rounded-[22px] border border-white/45 bg-white/55 px-3 py-2 shadow-[0_18px_48px_rgba(15,23,42,0.18)] backdrop-blur-2xl">
+            <div className="flex items-center -space-x-2">
+              {mediaItems.map((item, index) => (
+                <motion.button
+                  key={item.id}
+                  type="button"
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    setSelectedItem(item);
+                  }}
+                  style={{
+                    zIndex: selectedItem.id === item.id ? 30 : mediaItems.length - index,
+                  }}
+                  className={`relative h-10 w-10 overflow-hidden rounded-2xl transition sm:h-12 sm:w-12 ${
+                    selectedItem.id === item.id
+                      ? "ring-2 ring-white/85 shadow-xl"
+                      : "hover:ring-2 hover:ring-white/45"
+                  }`}
+                  initial={{ rotate: index % 2 === 0 ? -12 : 12 }}
+                  animate={{
+                    scale: selectedItem.id === item.id ? 1.15 : 1,
+                    rotate: selectedItem.id === item.id ? 0 : index % 2 === 0 ? -12 : 12,
+                    y: selectedItem.id === item.id ? -6 : 0,
+                  }}
+                  whileHover={{
+                    scale: 1.24,
+                    rotate: 0,
+                    y: -8,
+                    transition: { type: "spring", stiffness: 400, damping: 24 },
+                  }}
+                >
+                  <MediaItem item={item} className="h-full w-full" />
+                  <div className="absolute inset-0 bg-gradient-to-b from-transparent via-white/10 to-white/20" />
+                </motion.button>
+              ))}
+            </div>
+          </div>
+        </motion.div>
+      </motion.div>
+    </>
+  );
+}
+
+type InteractiveBentoGalleryProps = {
+  mediaItems: BentoGalleryItem[];
+  title: string;
+  description: string;
+};
+
+export default function InteractiveBentoGallery({
+  mediaItems,
+  title,
+  description,
+}: InteractiveBentoGalleryProps) {
+  const [selectedItem, setSelectedItem] = useState<BentoGalleryItem | null>(null);
+  const [items, setItems] = useState(mediaItems);
+  const [isDragging, setIsDragging] = useState(false);
+  const [isTouchDevice, setIsTouchDevice] = useState(false);
+
+  useEffect(() => {
+    setItems(mediaItems);
+  }, [mediaItems]);
+
+  useEffect(() => {
+    const mediaQuery = window.matchMedia("(pointer: coarse)");
+    const updateTouchMode = () => {
+      setIsTouchDevice(mediaQuery.matches || window.innerWidth < 768);
+    };
+
+    updateTouchMode();
+    mediaQuery.addEventListener("change", updateTouchMode);
+    window.addEventListener("resize", updateTouchMode);
+
+    return () => {
+      mediaQuery.removeEventListener("change", updateTouchMode);
+      window.removeEventListener("resize", updateTouchMode);
+    };
+  }, []);
+
+  const galleryItems = useMemo(() => items.filter(Boolean), [items]);
+  const selectedIndex = selectedItem
+    ? galleryItems.findIndex((item) => item.id === selectedItem.id)
+    : -1;
+
+  const selectPrevious = () => {
+    if (selectedIndex < 0) {
+      return;
+    }
+
+    const nextIndex = selectedIndex === 0 ? galleryItems.length - 1 : selectedIndex - 1;
+    setSelectedItem(galleryItems[nextIndex] ?? null);
+  };
+
+  const selectNext = () => {
+    if (selectedIndex < 0) {
+      return;
+    }
+
+    const nextIndex = selectedIndex === galleryItems.length - 1 ? 0 : selectedIndex + 1;
+    setSelectedItem(galleryItems[nextIndex] ?? null);
+  };
+
+  useEffect(() => {
+    if (!selectedItem) {
+      return;
+    }
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        setSelectedItem(null);
+      }
+
+      if (event.key === "ArrowLeft") {
+        selectPrevious();
+      }
+
+      if (event.key === "ArrowRight") {
+        selectNext();
+      }
+    };
+
+    window.addEventListener("keydown", handleKeyDown);
+
+    return () => {
+      window.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [selectedItem, selectedIndex, galleryItems]);
+
+  if (galleryItems.length === 0) {
+    return null;
+  }
+
+  return (
+    <div className="rounded-[36px] border border-black/5 bg-white/72 px-4 py-6 shadow-soft backdrop-blur-xl sm:px-6 sm:py-8">
+      <div className="mb-8 text-center">
+        <motion.h3
+          className="text-3xl font-semibold tracking-tight text-ink sm:text-4xl"
+          initial={{ opacity: 0, y: 16 }}
+          whileInView={{ opacity: 1, y: 0 }}
+          viewport={{ once: true, amount: 0.4 }}
+          transition={{ duration: 0.5 }}
+        >
+          {title}
+        </motion.h3>
+        <motion.p
+          className="mx-auto mt-3 max-w-2xl text-sm leading-7 text-ink/60 sm:text-base"
+          initial={{ opacity: 0, y: 16 }}
+          whileInView={{ opacity: 1, y: 0 }}
+          viewport={{ once: true, amount: 0.4 }}
+          transition={{ duration: 0.5, delay: 0.08 }}
+        >
+          {description}
+        </motion.p>
+      </div>
+
+      <AnimatePresence mode="wait">
+        {selectedItem ? (
+          <GalleryModal
+            selectedItem={selectedItem}
+            isOpen
+            onClose={() => setSelectedItem(null)}
+            setSelectedItem={setSelectedItem}
+            mediaItems={galleryItems}
+            onPrevious={selectPrevious}
+            onNext={selectNext}
+          />
+        ) : (
+          <>
+            <div className="mb-4 flex items-center justify-center gap-2 text-center text-xs text-ink/45 sm:text-sm">
+              <Grip className="h-4 w-4" />
+              {isTouchDevice
+                ? "Mobil qurilmada galereya teginish orqali ochiladi."
+                : "Kartalarni ushlab joyini almashtirishingiz mumkin."}
+            </div>
+
+            <motion.div
+              className="grid auto-rows-[88px] grid-cols-1 gap-3 sm:grid-cols-3 md:grid-cols-4"
+              initial="hidden"
+              whileInView="visible"
+              viewport={{ once: true, amount: 0.15 }}
+              variants={{
+                hidden: { opacity: 0 },
+                visible: {
+                  opacity: 1,
+                  transition: { staggerChildren: 0.08 },
+                },
+              }}
+            >
+            {galleryItems.map((item, index) => (
+              <motion.div
+                key={item.id}
+                layoutId={`media-${item.id}`}
+                className={`group relative overflow-hidden rounded-[24px] border border-white/35 bg-slate-100 shadow-[0_16px_32px_rgba(15,23,42,0.08)] ${item.span}`}
+                onClick={() => {
+                  if (!isDragging) {
+                    setSelectedItem(item);
+                  }
+                }}
+                variants={{
+                  hidden: { y: 36, scale: 0.94, opacity: 0 },
+                  visible: {
+                    y: 0,
+                    scale: 1,
+                    opacity: 1,
+                    transition: {
+                      type: "spring",
+                      stiffness: 300,
+                      damping: 24,
+                      delay: index * 0.04,
+                    },
+                  },
+                }}
+                whileHover={{ scale: 1.015, y: -2 }}
+                drag={!isTouchDevice}
+                dragConstraints={{ left: 0, right: 0, top: 0, bottom: 0 }}
+                dragElastic={0.18}
+                dragMomentum={false}
+                onDragStart={() => setIsDragging(true)}
+                onDragEnd={(_, info) => {
+                  setIsDragging(false);
+
+                  if (isTouchDevice) {
+                    return;
+                  }
+
+                  const moveDistance = info.offset.x + info.offset.y;
+
+                  if (Math.abs(moveDistance) <= 56) {
+                    return;
+                  }
+
+                  const nextItems = [...galleryItems];
+                  const draggedItem = nextItems[index];
+                  const targetIndex =
+                    moveDistance > 0
+                      ? Math.min(index + 1, galleryItems.length - 1)
+                      : Math.max(index - 1, 0);
+
+                  nextItems.splice(index, 1);
+                  nextItems.splice(targetIndex, 0, draggedItem);
+                  setItems(nextItems);
+                }}
+              >
+                <MediaItem item={item} className="absolute inset-0 h-full w-full" />
+                <motion.div
+                  className="absolute inset-0 flex flex-col justify-end p-4"
+                  initial={{ opacity: 0 }}
+                  whileHover={{ opacity: 1 }}
+                  transition={{ duration: 0.18 }}
+                >
+                  <div className="absolute inset-0 bg-gradient-to-t from-black/75 via-black/30 to-transparent" />
+                  <h4 className="relative text-sm font-semibold text-white sm:text-base">{item.title}</h4>
+                  <p className="relative mt-1 text-xs leading-5 text-white/75 sm:text-sm">{item.desc}</p>
+                </motion.div>
+              </motion.div>
+            ))}
+            </motion.div>
+          </>
+        )}
+      </AnimatePresence>
+    </div>
+  );
+}
