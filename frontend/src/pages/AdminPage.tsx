@@ -69,6 +69,17 @@ const emptyPackage: PackageInput = {
   max_guests: 1,
 };
 
+function createEmptyPackage(): PackageInput {
+  return {
+    name: "",
+    description: "",
+    type: "stay",
+    base_price: 0,
+    price_per_guest: 0,
+    max_guests: 1,
+  };
+}
+
 const emptySiteSettings: Omit<SiteSettings, "id"> = {
   hotel_name: "",
   description: "",
@@ -307,7 +318,7 @@ export function AdminPage() {
   const [media, setMedia] = useState<MediaAsset[]>([]);
   const [homeSections, setHomeSections] = useState<ContentSection[]>([]);
   const [siteSettings, setSiteSettings] = useState<Omit<SiteSettings, "id">>(emptySiteSettings);
-  const [packageForm, setPackageForm] = useState<PackageInput>(emptyPackage);
+  const [packageForm, setPackageForm] = useState<PackageInput>(createEmptyPackage());
   const [packageImageFiles, setPackageImageFiles] = useState<File[]>([]);
   const [editingPackageId, setEditingPackageId] = useState<string | null>(null);
   const [mediaForm, setMediaForm] = useState({
@@ -470,15 +481,28 @@ export function AdminPage() {
     resetMessages();
 
     try {
-      const savedPackage = await upsertPackage(editingPackageId, packageForm);
+      const savedPackage = await upsertPackage(editingPackageId, { ...packageForm });
 
       if (packageImageFiles.length > 0) {
         await Promise.all(packageImageFiles.map((file) => uploadPackageImage(file, savedPackage.id)));
       }
 
+      setPackages((current) => {
+        const nextItem = {
+          ...savedPackage,
+          images:
+            current.find((item) => item.id === savedPackage.id)?.images ??
+            savedPackage.images,
+        };
+
+        return current.some((item) => item.id === savedPackage.id)
+          ? current.map((item) => (item.id === savedPackage.id ? { ...item, ...nextItem } : item))
+          : [...current, nextItem];
+      });
+
       await refresh();
       setEditingPackageId(null);
-      setPackageForm(emptyPackage);
+      setPackageForm(createEmptyPackage());
       setPackageImageFiles([]);
       setNotice("Paket muvaffaqiyatli saqlandi.");
     } catch (submitError) {
@@ -1736,7 +1760,7 @@ export function AdminPage() {
                   type="button"
                   onClick={() => {
                     setEditingPackageId(null);
-                    setPackageForm(emptyPackage);
+                    setPackageForm(createEmptyPackage());
                     setPackageImageFiles([]);
                   }}
                   className="inline-flex items-center justify-center gap-2 rounded-full border border-black/10 px-5 py-3 text-sm font-medium text-ink transition hover:bg-pearl"

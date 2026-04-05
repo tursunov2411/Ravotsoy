@@ -189,6 +189,7 @@ export async function upsertPackage(id: string | null, payload: PackageInput) {
 
   const client = ensureSupabase();
   const basePayload = {
+    id: id ?? crypto.randomUUID(),
     name: payload.name,
     description: payload.description,
     type: payload.type,
@@ -197,11 +198,11 @@ export async function upsertPackage(id: string | null, payload: PackageInput) {
     max_guests: payload.max_guests,
   };
 
-  const query = id
-    ? client.from("packages").update(basePayload).eq("id", id).select().single()
-    : client.from("packages").insert(basePayload).select().single();
-
-  const { data, error } = await query;
+  const { data, error } = await client
+    .from("packages")
+    .upsert(basePayload, { onConflict: "id" })
+    .select("id, name, description, type, base_price, price_per_guest, max_guests")
+    .single();
 
   if (error) {
     throw error;
