@@ -12,6 +12,7 @@ create or replace function public.notify_booking_to_telegram()
 returns trigger
 language plpgsql
 security definer
+set search_path = public
 as $$
 declare
   request_id bigint;

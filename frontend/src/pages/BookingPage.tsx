@@ -34,6 +34,7 @@ export function BookingPage() {
   const location = useLocation();
   const [packages, setPackages] = useState<PackageRecord[]>([]);
   const [error, setError] = useState("");
+  const [successMessage, setSuccessMessage] = useState("");
   const [estimatedPrice, setEstimatedPrice] = useState(0);
   const [submitting, setSubmitting] = useState(false);
   const [form, setForm] = useState<BookingForm>({
@@ -144,6 +145,7 @@ export function BookingPage() {
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     setError("");
+    setSuccessMessage("");
 
     if (!selectedPackage) {
       setError("Avval paketni tanlang.");
@@ -208,7 +210,6 @@ export function BookingPage() {
         });
       }
 
-      window.alert("So'rov qabul qilindi. Menejerga yuborish jarayoni boshlandi.");
       setForm({
         packageId: selectedPackage.id,
         customerName: "",
@@ -219,6 +220,7 @@ export function BookingPage() {
         checkOut: "",
         dayDate: todayIso(),
       });
+      setSuccessMessage("So'rov qabul qilindi. Menejerga yuborish jarayoni boshlandi.");
     } catch (submitError) {
       console.error(submitError);
       setError("So'rovni yuborishda xatolik yuz berdi.");
@@ -466,6 +468,12 @@ export function BookingPage() {
             {error ? (
               <div className="rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
                 {error}
+              </div>
+            ) : null}
+
+            {successMessage ? (
+              <div className="rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-700">
+                {successMessage}
               </div>
             ) : null}
 

@@ -92,6 +92,9 @@ Tartib bilan quyidagilarni ishlating:
 2. `backend/supabase/migrations/20260405_align_requested_schema.sql`
 3. `backend/supabase/migrations/3_create_booking_telegram_webhook.sql`
 4. `backend/supabase/migrations/4_create_package_images_bucket.sql`
+5. `backend/supabase/migrations/20260405_reconcile_live_schema.sql`
+
+Oxirgi fayl mavjud projectlarda eski policy va legacy jadval driftlarini tozalaydi.
 
 ### 2. Uchinchi SQL faylda almashtiriladigan qiymatlar
 

@@ -299,13 +299,38 @@ export async function getSession() {
   return session;
 }
 
-export async function signInAdmin(email: string, password: string) {
+export async function isAdminUser(userId: string) {
   const client = ensureSupabase();
-  const { error } = await client.auth.signInWithPassword({ email, password });
+  const { data, error } = await client.rpc("is_admin", { user_id: userId });
 
   if (error) {
     throw error;
   }
+
+  return Boolean(data);
+}
+
+export async function getAdminSession() {
+  const session = await getSession();
+
+  if (!session) {
+    return null;
+  }
+
+  const isAdmin = await isAdminUser(session.user.id);
+
+  return isAdmin ? session : null;
+}
+
+export async function signInAdmin(email: string, password: string) {
+  const client = ensureSupabase();
+  const { data, error } = await client.auth.signInWithPassword({ email, password });
+
+  if (error) {
+    throw error;
+  }
+
+  return data.session;
 }
 
 export async function signOutAdmin() {

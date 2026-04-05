@@ -2,7 +2,7 @@ import { LoaderCircle, LockKeyhole, Mail, Shield } from "lucide-react";
 import { type FormEvent, useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { AnimatedSection } from "../components/AnimatedSection";
-import { getSession, signInAdmin } from "../lib/api";
+import { getAdminSession, getSession, isAdminUser, signInAdmin, signOutAdmin } from "../lib/api";
 import { hasSupabaseConfig } from "../lib/supabase";
 
 export function AdminLogin() {
@@ -20,11 +20,18 @@ export function AdminLogin() {
 
     const checkSession = async () => {
       try {
+        const adminSession = await getAdminSession();
+
+        if (adminSession) {
+          navigate("/admin", { replace: true });
+          return;
+        }
+
         const session = await getSession();
 
         if (session) {
-          navigate("/admin", { replace: true });
-          return;
+          await signOutAdmin();
+          setError("Bu akkaunt admin emas.");
         }
       } catch (sessionError) {
         console.error(sessionError);
@@ -42,7 +49,14 @@ export function AdminLogin() {
     setSubmitting(true);
 
     try {
-      await signInAdmin(form.email, form.password);
+      const session = await signInAdmin(form.email, form.password);
+
+      if (!session || !(await isAdminUser(session.user.id))) {
+        await signOutAdmin();
+        setError("Bu akkaunt admin emas.");
+        return;
+      }
+
       navigate("/admin", { replace: true });
     } catch (loginError) {
       console.error(loginError);

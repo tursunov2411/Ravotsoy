@@ -18,11 +18,12 @@ import { useNavigate } from "react-router-dom";
 import {
   deleteBooking,
   deletePackage,
+  getAdminSession,
   getAdminBookings,
   getMediaAssets,
   getPackages,
   getSiteSettings,
-  getSession,
+  isAdminUser,
   onAuthChange,
   signOutAdmin,
   updateBookingStatus,
@@ -160,6 +161,12 @@ export function AdminPage() {
   const [notice, setNotice] = useState("");
   const [error, setError] = useState("");
 
+  const redirectToAdminLogin = async () => {
+    setSession(null);
+    await signOutAdmin();
+    navigate("/admin-login", { replace: true });
+  };
+
   const refresh = async () => {
     const [packagesData, bookingsData, mediaData, settingsData] = await Promise.all([
       getPackages(),
@@ -187,13 +194,13 @@ export function AdminPage() {
 
     const boot = async () => {
       try {
-        const currentSession = await getSession();
+        const currentSession = await getAdminSession();
         setSession(currentSession);
 
         if (currentSession) {
           await refresh();
         } else {
-          navigate("/admin-login", { replace: true });
+          await redirectToAdminLogin();
         }
       } catch (bootError) {
         console.error(bootError);
@@ -204,12 +211,28 @@ export function AdminPage() {
     };
 
     const unsubscribe = onAuthChange((nextSession) => {
-      setSession(nextSession);
-      if (nextSession) {
-        void refresh();
-      } else {
-        navigate("/admin-login", { replace: true });
-      }
+      void (async () => {
+        if (!nextSession) {
+          setSession(null);
+          navigate("/admin-login", { replace: true });
+          return;
+        }
+
+        try {
+          const adminAllowed = await isAdminUser(nextSession.user.id);
+
+          if (!adminAllowed) {
+            await redirectToAdminLogin();
+            return;
+          }
+
+          setSession(nextSession);
+          await refresh();
+        } catch (authError) {
+          console.error(authError);
+          setError("Admin ruxsatlarini tekshirishda xatolik yuz berdi.");
+        }
+      })();
     });
 
     void boot();

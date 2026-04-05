@@ -9,7 +9,6 @@ const navigation = [
   { to: "/", label: "Bosh sahifa" },
   { to: "/paketlar", label: "Paketlar" },
   { to: "/bron", label: "Bron qilish" },
-  { to: "/admin", label: "Admin" },
 ];
 
 function navClass(isActive: boolean) {
