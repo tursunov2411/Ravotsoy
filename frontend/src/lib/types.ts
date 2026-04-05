@@ -35,9 +35,37 @@ export type MediaAsset = {
   type: MediaKind;
   url: string;
   package_id?: string | null;
+  storage_path?: string | null;
 };
 
 export type PackageInput = Omit<PackageRecord, "id" | "images">;
+
+export type HomeFeatureCard = {
+  id: string;
+  title: string;
+  description: string;
+  icon: "trees" | "sparkles" | "message-circle" | "map-pinned";
+};
+
+export type SightseeingPlace = {
+  id: string;
+  name: string;
+  description: string;
+};
+
+export type ContentSectionType = "about" | "highlights" | "packages" | "gallery" | "sightseeing" | "contacts";
+
+export type ContentSection = {
+  id: string;
+  page: "home";
+  section_type: ContentSectionType;
+  eyebrow: string;
+  title: string;
+  description: string;
+  content: Record<string, unknown>;
+  sort_order: number;
+  is_enabled: boolean;
+};
 
 export type PublicContact = {
   id: string;
@@ -49,10 +77,10 @@ export type PublicContact = {
 
 export type SiteSettings = {
   id: number;
-  location_label: string;
+  hotel_name?: string | null;
   location_url: string;
-  maps_embed_url?: string | null;
-  contacts_button_label?: string | null;
-  contacts_button_url?: string | null;
+  description?: string | null;
+  about_text?: string | null;
+  hero_images?: string[];
   contact_people?: PublicContact[];
 };

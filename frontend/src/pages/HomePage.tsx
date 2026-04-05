@@ -1,4 +1,13 @@
-import { ArrowRight, ExternalLink, MapPinned, MessageCircleMore, Phone, Sparkles, Trees } from "lucide-react";
+import {
+  ArrowRight,
+  ExternalLink,
+  MapPinned,
+  MessageCircleMore,
+  Phone,
+  Sparkles,
+  Trees,
+} from "lucide-react";
+import { motion } from "framer-motion";
 import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { AnimatedSection } from "../components/AnimatedSection";
@@ -6,23 +15,123 @@ import { PackageCard } from "../components/PackageCard";
 import InteractiveBentoGallery, {
   type BentoGalleryItem,
 } from "../components/ui/interactive-bento-gallery";
-import { getMediaAssets, getPackages, getSiteSettings } from "../lib/api";
-import type { MediaAsset, PackageRecord, PublicContact, SiteSettings } from "../lib/types";
+import { getHomeSections, getMediaAssets, getPackages, getSiteSettings } from "../lib/api";
+import type {
+  ContentSection,
+  HomeFeatureCard,
+  MediaAsset,
+  PackageRecord,
+  SightseeingPlace,
+  SiteSettings,
+} from "../lib/types";
 import { getPhoneLink, getTelegramLink, getTelegramProfileLink, isVideoUrl } from "../lib/utils";
 
+function FeatureIcon({ icon }: { icon: HomeFeatureCard["icon"] }) {
+  if (icon === "trees") {
+    return <Trees className="text-emerald-300" size={22} />;
+  }
+
+  if (icon === "message-circle") {
+    return <MessageCircleMore className="text-emerald-300" size={22} />;
+  }
+
+  if (icon === "map-pinned") {
+    return <MapPinned className="text-emerald-300" size={22} />;
+  }
+
+  return <Sparkles className="text-emerald-300" size={22} />;
+}
+
+function SectionHeading({
+  eyebrow,
+  title,
+  description,
+}: {
+  eyebrow?: string;
+  title?: string;
+  description?: string;
+}) {
+  return (
+    <div className="max-w-3xl">
+      {eyebrow ? (
+        <p className="text-xs uppercase tracking-[0.32em] text-ink/38">{eyebrow}</p>
+      ) : null}
+      {title ? <h2 className="mt-3 text-3xl font-semibold tracking-tight text-ink sm:text-4xl">{title}</h2> : null}
+      {description ? <p className="mt-4 text-sm leading-8 text-ink/62">{description}</p> : null}
+    </div>
+  );
+}
+
+function parseFeatureCards(value: unknown): HomeFeatureCard[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  return value
+    .map((item) => {
+      const record = item as Record<string, unknown>;
+      const title = String(record.title ?? "").trim();
+      const description = String(record.description ?? "").trim();
+      const icon = String(record.icon ?? "sparkles") as HomeFeatureCard["icon"];
+
+      if (!title && !description) {
+        return null;
+      }
+
+      return {
+        id: String(record.id ?? crypto.randomUUID()),
+        title,
+        description,
+        icon:
+          icon === "trees" || icon === "sparkles" || icon === "message-circle" || icon === "map-pinned"
+            ? icon
+            : "sparkles",
+      } satisfies HomeFeatureCard;
+    })
+    .filter((item): item is HomeFeatureCard => Boolean(item));
+}
+
+function parseSightseeingPlaces(value: unknown): SightseeingPlace[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  return value
+    .map((item) => {
+      const record = item as Record<string, unknown>;
+      const name = String(record.name ?? "").trim();
+      const description = String(record.description ?? "").trim();
+
+      if (!name && !description) {
+        return null;
+      }
+
+      return {
+        id: String(record.id ?? crypto.randomUUID()),
+        name,
+        description,
+      } satisfies SightseeingPlace;
+    })
+    .filter((item): item is SightseeingPlace => Boolean(item));
+}
+
 export function HomePage() {
+  const [sections, setSections] = useState<ContentSection[]>([]);
   const [packages, setPackages] = useState<PackageRecord[]>([]);
   const [media, setMedia] = useState<MediaAsset[]>([]);
   const [siteSettings, setSiteSettings] = useState<SiteSettings | null>(null);
+  const [heroIndex, setHeroIndex] = useState(0);
 
   useEffect(() => {
     const load = async () => {
       try {
-        const [packagesData, mediaData, settingsData] = await Promise.all([
+        const [sectionsData, packagesData, mediaData, settingsData] = await Promise.all([
+          getHomeSections(),
           getPackages(),
           getMediaAssets(),
           getSiteSettings(),
         ]);
+        setSections(sectionsData);
         setPackages(packagesData);
         setMedia(mediaData);
         setSiteSettings(settingsData);
@@ -34,227 +143,241 @@ export function HomePage() {
     void load();
   }, []);
 
-  const hero = media.find((item) => item.type === "hero") ?? media[0];
-  const gallery = media.filter((item) => item.type === "gallery");
-  const telegramLink = getTelegramLink("Salom, Ravotsoy Dam olish Maskani haqida ma'lumot olmoqchiman.");
-  const mapsEmbedUrl = siteSettings?.maps_embed_url?.trim() ?? "";
-  const locationUrl = siteSettings?.location_url?.trim() || "https://yandex.com/maps/-/CHeC5WPL";
-  const locationLabel = siteSettings?.location_label?.trim() || "Bizning manzilimiz";
-  const contactPeople = siteSettings?.contact_people ?? [];
-  const featuredContacts = contactPeople.filter(
-    (item) => item.name.trim() || item.phone.trim() || item.telegram.trim(),
+  const orderedSections = useMemo(
+    () =>
+      [...sections]
+        .filter((section) => section.is_enabled)
+        .sort((left, right) => left.sort_order - right.sort_order),
+    [sections],
   );
-  const galleryItems = useMemo<BentoGalleryItem[]>(() => {
-    const spans = [
-      "sm:col-span-1 sm:row-span-3 md:col-span-1 md:row-span-3",
-      "sm:col-span-2 sm:row-span-2 md:col-span-2 md:row-span-2",
-      "sm:col-span-1 sm:row-span-2 md:col-span-1 md:row-span-3",
-      "sm:col-span-2 sm:row-span-2 md:col-span-2 md:row-span-2",
-      "sm:col-span-1 sm:row-span-3 md:col-span-1 md:row-span-3",
-      "sm:col-span-1 sm:row-span-2 md:col-span-2 md:row-span-2",
-    ];
 
-    return gallery.map((item, index) => ({
-      id: item.id,
-      type: isVideoUrl(item.url) ? "video" : "image",
-      title: `Ravotsoydan lavha ${index + 1}`,
-      desc:
-        index % 2 === 0
-          ? "Hududning tabiiy manzarasi va osoyishta dam olish muhiti."
-          : "Mehmonlar uchun tayyorlangan qulay maskan va dam olish kayfiyati.",
-      url: item.url,
-      span: spans[index % spans.length],
-    }));
-  }, [gallery]);
+  const heroMedia = useMemo(() => media.filter((item) => item.type === "hero"), [media]);
+  const heroSlides = useMemo(() => {
+    if ((siteSettings?.hero_images?.length ?? 0) > 0) {
+      return siteSettings!.hero_images!
+        .map((id) => heroMedia.find((item) => item.id === id))
+        .filter((item): item is MediaAsset => Boolean(item));
+    }
 
-  return (
-    <div className="pb-12">
-      <section className="relative min-h-[100svh] overflow-hidden">
-        {hero && isVideoUrl(hero.url) ? (
-          <video
-            src={hero.url}
-            autoPlay
-            muted
-            loop
-            playsInline
-            className="absolute inset-0 h-full w-full object-cover"
-          />
-        ) : (
-          <img
-            src={hero?.url ?? "https://placehold.co/1800x1200?text=Ravotsoy+Dam+olish+Maskani"}
-            alt="Ravotsoy Dam olish Maskani"
-            className="absolute inset-0 h-full w-full object-cover"
-          />
-        )}
+    return heroMedia;
+  }, [heroMedia, siteSettings]);
+  const galleryMedia = useMemo(() => media.filter((item) => item.type === "gallery"), [media]);
+  const contactPeople = siteSettings?.contact_people ?? [];
+  const locationUrl = siteSettings?.location_url?.trim() || "https://yandex.com/maps/-/CHeC5WPL";
+  const hotelName = siteSettings?.hotel_name?.trim() || "Ravotsoy Dam Olish Maskani";
+  const hotelDescription =
+    siteSettings?.description?.trim() ||
+    "Tabiat bag'rida dam olish, paketlar va bron ma'lumotlari shu sahifada boshqariladi.";
+  const aboutText = siteSettings?.about_text?.trim() || hotelDescription;
+  const telegramLink = getTelegramLink(`${hotelName} haqida ma'lumot olmoqchiman.`);
+  const activeHero = heroSlides[heroIndex] ?? heroSlides[0] ?? null;
 
-        <div className="absolute inset-0 bg-gradient-to-b from-black/40 via-black/25 to-black/55" />
+  useEffect(() => {
+    if (heroSlides.length <= 1) {
+      setHeroIndex(0);
+      return;
+    }
 
-        <div className="relative mx-auto flex min-h-[100svh] max-w-7xl flex-col justify-end px-4 py-12 sm:px-6 lg:px-8 lg:py-16">
-          <AnimatedSection className="max-w-4xl text-white">
-            <div className="inline-flex items-center gap-2 rounded-full bg-white/15 px-4 py-2 text-sm backdrop-blur">
-              <Sparkles size={16} />
-              Tabiat qo'ynidagi sokin hordiq
+    const timer = window.setInterval(() => {
+      setHeroIndex((current) => (current + 1) % heroSlides.length);
+    }, 5200);
+
+    return () => window.clearInterval(timer);
+  }, [heroSlides.length]);
+
+  const galleryItems = useMemo<BentoGalleryItem[]>(
+    () =>
+      galleryMedia.map((item, index) => ({
+        id: item.id,
+        type: isVideoUrl(item.url) ? "video" : "image",
+        title: `${hotelName} media ${index + 1}`,
+        desc: hotelDescription,
+        url: item.url,
+        span:
+          [
+            "sm:col-span-1 sm:row-span-3 md:col-span-1 md:row-span-3",
+            "sm:col-span-2 sm:row-span-2 md:col-span-2 md:row-span-2",
+            "sm:col-span-1 sm:row-span-2 md:col-span-1 md:row-span-3",
+            "sm:col-span-2 sm:row-span-2 md:col-span-2 md:row-span-2",
+            "sm:col-span-1 sm:row-span-3 md:col-span-1 md:row-span-3",
+            "sm:col-span-1 sm:row-span-2 md:col-span-2 md:row-span-2",
+          ][index % 6],
+      })),
+    [galleryMedia, hotelDescription, hotelName],
+  );
+
+  const renderSection = (section: ContentSection) => {
+    if (section.section_type === "about") {
+      return (
+        <AnimatedSection key={section.id} className="mt-16">
+          <div className="grid gap-6 lg:grid-cols-[1.05fr_0.95fr]">
+            <div className="rounded-[36px] border border-black/5 bg-white p-8 shadow-soft sm:p-10">
+              <SectionHeading eyebrow={section.eyebrow} title={section.title} />
+              <p className="mt-5 text-sm leading-8 text-ink/64">{aboutText}</p>
             </div>
 
-            <h1 className="mt-6 text-5xl font-semibold leading-tight tracking-tight sm:text-6xl lg:text-7xl">
-              Ravotsoy Dam olish Maskani
-            </h1>
-
-            <p className="mt-5 max-w-2xl text-base leading-8 text-white/85 sm:text-lg">
-              Tabiat manzarasi, shinam muhit va oilaviy hordiq uchun mo'ljallangan
-              tunab qolish hamda kunlik dam olish paketlari.
-            </p>
-
-            <div className="mt-8 flex flex-col gap-3 sm:flex-row">
-              <Link
-                to="/paketlar"
-                className="inline-flex items-center justify-center rounded-full bg-white px-6 py-3 text-sm font-medium text-ink transition hover:bg-pearl"
-              >
-                Paketlarni ko'rish
-              </Link>
-              <Link
-                to="/bron"
-                className="inline-flex items-center justify-center gap-2 rounded-full border border-white/25 px-6 py-3 text-sm font-medium text-white transition hover:bg-white/10"
-              >
-                Bron qilish
-                <ArrowRight size={16} />
-              </Link>
-            </div>
-          </AnimatedSection>
-        </div>
-      </section>
-
-        <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
-        <AnimatedSection className="mt-8">
-          <div className="grid gap-4 rounded-[32px] border border-black/5 bg-white/80 p-5 shadow-soft md:grid-cols-3">
-            <div className="rounded-[24px] bg-pearl p-5">
-              <p className="text-xs uppercase tracking-[0.28em] text-ink/40">Yo'nalish</p>
-              <p className="mt-3 text-2xl font-semibold text-ink">Yandex xarita orqali tez toping</p>
-              <a
-                href={locationUrl}
-                target="_blank"
-                rel="noreferrer"
-                className="mt-4 inline-flex items-center gap-2 text-sm font-medium text-pine"
-              >
-                Joylashuvni ochish
-                <ExternalLink size={16} />
-              </a>
-            </div>
-            <div className="rounded-[24px] bg-pearl p-5">
-              <p className="text-xs uppercase tracking-[0.28em] text-ink/40">Bron</p>
-              <p className="mt-3 text-2xl font-semibold text-ink">Paketni tanlang va darhol so'rov yuboring</p>
-              <p className="mt-3 text-sm leading-7 text-ink/62">
-                Paketlar bazadan yuklanadi, narx esa mehmonlar soni va sanaga qarab hisoblanadi.
-              </p>
-            </div>
-            <div className="rounded-[24px] bg-pearl p-5">
-              <p className="text-xs uppercase tracking-[0.28em] text-ink/40">Aloqa</p>
-              <p className="mt-3 text-2xl font-semibold text-ink">Savollar uchun xodimlar bilan bevosita bog'laning</p>
-              <p className="mt-3 text-sm leading-7 text-ink/62">
-                Telefon orqali qo'ng'iroq qiling yoki Telegram profiliga yozing.
-              </p>
-            </div>
-          </div>
-        </AnimatedSection>
-
-        <AnimatedSection className="mt-16">
-          <div className="grid gap-6 lg:grid-cols-[0.85fr_1.15fr]">
-            <div className="rounded-[32px] border border-black/5 bg-white p-8 shadow-soft">
-              <p className="text-xs uppercase tracking-[0.3em] text-ink/35">Biz haqimizda</p>
-              <h2 className="mt-4 text-3xl font-semibold tracking-tight sm:text-4xl">
-                Ravotsoyda tabiiy tinchlik va qulay dam olish birlashadi
-              </h2>
-              <p className="mt-4 text-sm leading-8 text-ink/65">
-                Ravotsoy Dam olish Maskani mehmonlarga sokin muhit, keng hudud va
-                sifatli hordiq tajribasini taqdim etadi. Oilaviy sayohat, do'stlar
-                davrasi yoki qisqa kunlik dam olish uchun qulay yechimlar tayyorlangan.
-              </p>
-            </div>
-
-            <div className="grid gap-4 sm:grid-cols-3">
-              <div className="rounded-[32px] bg-pearl p-6">
-                <Trees className="text-pine" size={22} />
-                <p className="mt-4 text-3xl font-semibold">Tabiat</p>
-                <p className="mt-2 text-sm leading-6 text-ink/60">
-                  Ochiq havo, manzara va osoyishta muhit.
+            <div className="grid gap-4 sm:grid-cols-2">
+              <div className="rounded-[32px] bg-[#07111f] p-6 text-white shadow-[0_24px_80px_rgba(15,23,42,0.16)]">
+                <p className="text-xs uppercase tracking-[0.28em] text-white/42">Paketlar</p>
+                <p className="mt-4 text-4xl font-semibold">{packages.length}</p>
+                <p className="mt-3 text-sm leading-7 text-white/68">
+                  Saytda bron qilish uchun admin tomonidan boshqariladigan paketlar soni.
                 </p>
               </div>
               <div className="rounded-[32px] bg-pearl p-6">
-                <Sparkles className="text-pine" size={22} />
-                <p className="mt-4 text-3xl font-semibold">Qulaylik</p>
-                <p className="mt-2 text-sm leading-6 text-ink/60">
-                  Toza, shinam va mehmonlar uchun mos tayyor joylar.
+                <p className="text-xs uppercase tracking-[0.28em] text-ink/35">Aloqa</p>
+                <p className="mt-4 text-4xl font-semibold text-ink">{contactPeople.length}</p>
+                <p className="mt-3 text-sm leading-7 text-ink/62">
+                  Telefon va Telegram orqali bog'lanish uchun mavjud xodimlar kontaktlari.
                 </p>
               </div>
-              <div className="rounded-[32px] bg-pearl p-6">
-                <MessageCircleMore className="text-pine" size={22} />
-                <p className="mt-4 text-3xl font-semibold">Aloqa</p>
-                <p className="mt-2 text-sm leading-6 text-ink/60">
-                  Telegram orqali tezkor javob va bron bo'yicha yordam.
-                </p>
+              <div className="rounded-[32px] bg-pearl p-6 sm:col-span-2">
+                <p className="text-xs uppercase tracking-[0.28em] text-ink/35">Joylashuv</p>
+                <div className="mt-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                  <p className="text-sm leading-7 text-ink/62">
+                    Yo'nalishni Yandex xaritada ochish va mehmonlar uchun qulay yetib kelish havolasini ishlatish mumkin.
+                  </p>
+                  <a
+                    href={locationUrl}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="inline-flex items-center gap-2 rounded-full bg-white px-5 py-3 text-sm font-medium text-ink transition hover:bg-white/80"
+                  >
+                    Xarita
+                    <ExternalLink size={16} />
+                  </a>
+                </div>
               </div>
             </div>
           </div>
         </AnimatedSection>
+      );
+    }
 
-        <AnimatedSection className="mt-16">
-          <div className="mb-8 flex items-end justify-between gap-4">
-            <div>
-              <p className="text-xs uppercase tracking-[0.3em] text-ink/35">Paketlar</p>
-              <h2 className="mt-3 text-3xl font-semibold tracking-tight sm:text-4xl">
-                Tanlangan paketlar
-              </h2>
-            </div>
-            <Link to="/paketlar" className="hidden text-sm font-medium text-ink/60 sm:inline-flex">
-              Barchasini ko'rish
+    if (section.section_type === "highlights") {
+      const cards = parseFeatureCards(section.content.cards);
+
+      return (
+        <AnimatedSection key={section.id} className="mt-16">
+          <SectionHeading eyebrow={section.eyebrow} title={section.title} description={section.description} />
+          <div className="mt-8 grid gap-4 lg:grid-cols-3">
+            {cards.length > 0 ? (
+              cards.map((item) => (
+                <div
+                  key={item.id}
+                  className="rounded-[32px] border border-black/5 bg-white p-6 shadow-soft transition duration-300 hover:-translate-y-1 hover:shadow-[0_28px_80px_rgba(15,23,42,0.12)]"
+                >
+                  <div className="inline-flex rounded-2xl bg-pearl p-3">
+                    <FeatureIcon icon={item.icon} />
+                  </div>
+                  <h3 className="mt-5 text-2xl font-semibold tracking-tight text-ink">{item.title}</h3>
+                  <p className="mt-3 text-sm leading-7 text-ink/60">{item.description}</p>
+                </div>
+              ))
+            ) : (
+              <div className="rounded-[32px] border border-dashed border-black/10 bg-white p-8 text-sm text-ink/60">
+                Bu bo'lim uchun kartalar hali sozlanmagan.
+              </div>
+            )}
+          </div>
+        </AnimatedSection>
+      );
+    }
+
+    if (section.section_type === "packages") {
+      return (
+        <AnimatedSection key={section.id} className="mt-16">
+          <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
+            <SectionHeading eyebrow={section.eyebrow} title={section.title} description={section.description} />
+            <Link to="/paketlar" className="inline-flex items-center gap-2 text-sm font-medium text-ink/60">
+              Barcha paketlar
+              <ArrowRight size={16} />
             </Link>
           </div>
-
-          <div className="grid gap-6 lg:grid-cols-3">
-            {packages.slice(0, 3).map((item) => (
-              <PackageCard key={item.id} item={item} />
-            ))}
-          </div>
-        </AnimatedSection>
-
-        <AnimatedSection className="mt-16">
-          <div className="mb-8">
-            <p className="text-xs uppercase tracking-[0.3em] text-ink/35">Galereya</p>
-            <h2 className="mt-3 text-3xl font-semibold tracking-tight sm:text-4xl">
-              Hudud va muhit
-            </h2>
-          </div>
-
-          {galleryItems.length > 0 ? (
-            <InteractiveBentoGallery
-              mediaItems={galleryItems}
-              title="Ravotsoy lahzalari"
-              description="Suratlar va videolarni ochib ko'ring, joyini siljitib tanlang va hududdagi muhitni yaqinroq his qiling."
-            />
-          ) : (
-            <div className="rounded-[32px] border border-black/5 bg-white p-8 shadow-soft">
-              <p className="text-sm leading-7 text-ink/60">
-                Galereya hozircha tayyorlanmoqda. Yaqinda hudud suratlari shu yerda ko'rinadi.
-              </p>
-            </div>
-          )}
-        </AnimatedSection>
-
-        <AnimatedSection className="mt-16">
-          <div className="grid gap-6 lg:grid-cols-[1.1fr_0.9fr]">
-            <div className="overflow-hidden rounded-[32px] border border-black/5 bg-white shadow-soft">
-              <div className="border-b border-black/5 px-8 py-6">
-                <p className="text-xs uppercase tracking-[0.3em] text-ink/35">Joylashuv</p>
-                <h2 className="mt-3 text-3xl font-semibold tracking-tight">Maskan manzili</h2>
+          <div className="mt-8 grid gap-6 lg:grid-cols-3">
+            {packages.length > 0 ? (
+              packages.slice(0, 3).map((item) => <PackageCard key={item.id} item={item} />)
+            ) : (
+              <div className="rounded-[32px] border border-dashed border-black/10 bg-white p-8 text-sm text-ink/60 lg:col-span-3">
+                Hali paketlar qo'shilmagan.
               </div>
-              <div className="flex h-[420px] items-center justify-center bg-[radial-gradient(circle_at_top,#ebf4ef_0%,#f6f3ec_55%,#ffffff_100%)] p-8">
-                <div className="max-w-md rounded-[28px] border border-black/6 bg-white/88 p-8 text-center shadow-soft backdrop-blur">
+            )}
+          </div>
+        </AnimatedSection>
+      );
+    }
+
+    if (section.section_type === "sightseeing") {
+      const places = parseSightseeingPlaces(section.content.places);
+
+      return (
+        <AnimatedSection key={section.id} className="mt-16">
+          <div className="grid gap-6 lg:grid-cols-[0.96fr_1.04fr]">
+            <div className="rounded-[36px] bg-[#07111f] p-8 text-white shadow-[0_24px_80px_rgba(15,23,42,0.16)] sm:p-10">
+              <SectionHeading eyebrow={section.eyebrow} title={section.title} description={section.description} />
+            </div>
+            <div className="grid gap-4 md:grid-cols-2">
+              {places.length > 0 ? (
+                places.map((place, index) => (
+                  <div
+                    key={place.id}
+                    className={`rounded-[32px] border border-black/5 p-6 shadow-soft ${
+                      index % 2 === 0 ? "bg-white" : "bg-pearl"
+                    }`}
+                  >
+                    <p className="text-xs uppercase tracking-[0.28em] text-ink/35">Sayr nuqtasi</p>
+                    <h3 className="mt-3 text-2xl font-semibold tracking-tight text-ink">{place.name}</h3>
+                    <p className="mt-3 text-sm leading-7 text-ink/60">{place.description}</p>
+                  </div>
+                ))
+              ) : (
+                <div className="rounded-[32px] border border-dashed border-black/10 bg-white p-8 text-sm text-ink/60 md:col-span-2">
+                  Sayr nuqtalari hali qo'shilmagan.
+                </div>
+              )}
+            </div>
+          </div>
+        </AnimatedSection>
+      );
+    }
+
+    if (section.section_type === "gallery") {
+      return (
+        <AnimatedSection key={section.id} className="mt-16">
+          <SectionHeading eyebrow={section.eyebrow} title={section.title} description={section.description} />
+          <div className="mt-8">
+            {galleryItems.length > 0 ? (
+              <InteractiveBentoGallery
+                mediaItems={galleryItems}
+                title={section.title || hotelName}
+                description={section.description || hotelDescription}
+              />
+            ) : (
+              <div className="rounded-[32px] border border-dashed border-black/10 bg-white p-8 text-sm text-ink/60">
+                Galereya uchun media hali yuklanmagan.
+              </div>
+            )}
+          </div>
+        </AnimatedSection>
+      );
+    }
+
+    if (section.section_type === "contacts") {
+      return (
+        <AnimatedSection key={section.id} className="mt-16">
+          <div className="grid gap-6 lg:grid-cols-[0.98fr_1.02fr]">
+            <div className="overflow-hidden rounded-[36px] border border-black/5 bg-white shadow-soft">
+              <div className="border-b border-black/5 px-8 py-7">
+                <SectionHeading eyebrow={section.eyebrow} title={section.title} description={section.description} />
+              </div>
+              <div className="flex h-full min-h-[320px] items-center justify-center bg-[radial-gradient(circle_at_top,#ecf8ef_0%,#f7f3ea_52%,#ffffff_100%)] p-8">
+                <div className="max-w-md rounded-[28px] border border-black/6 bg-white/85 p-8 text-center shadow-soft backdrop-blur">
                   <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-full bg-pearl text-pine">
                     <MapPinned size={24} />
                   </div>
-                  <h3 className="mt-5 text-2xl font-semibold tracking-tight text-ink">{locationLabel}</h3>
+                  <h3 className="mt-5 text-2xl font-semibold tracking-tight text-ink">Joylashuv</h3>
                   <p className="mt-3 text-sm leading-7 text-ink/62">
-                    Maskan joylashuvini Yandex xarita orqali oching va yo'lni qulay toping.
+                    Manzil havolasi orqali mehmonlar Yandex xaritada yo'nalishni tez ochishi mumkin.
                   </p>
                   <a
                     href={locationUrl}
@@ -269,54 +392,33 @@ export function HomePage() {
               </div>
             </div>
 
-            <div className="rounded-[32px] border border-black/5 bg-white p-8 shadow-soft">
-              <p className="text-xs uppercase tracking-[0.3em] text-ink/35">Aloqa</p>
-              <h2 className="mt-3 text-3xl font-semibold tracking-tight">Biz bilan bog'laning</h2>
-              <p className="mt-4 text-sm leading-8 text-ink/65">
-                Bron, bo'sh joylar va qo'shimcha ma'lumot uchun xodimlarimiz bilan to'g'ridan-to'g'ri gaplashing.
-              </p>
-
-              <div className="mt-8 rounded-[28px] bg-pearl p-5">
-                <div className="flex items-center gap-3">
-                  <MapPinned className="text-pine" size={20} />
-                  <a
-                    href={locationUrl}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="text-sm font-medium text-ink transition hover:text-pine"
-                  >
-                    {locationLabel}
-                  </a>
-                </div>
-              </div>
-
-              <div className="mt-6 flex flex-col gap-3">
+            <div className="rounded-[36px] border border-black/5 bg-white p-8 shadow-soft sm:p-10">
+              <div className="flex flex-col gap-3 sm:flex-row">
                 <a
                   href={telegramLink}
                   target="_blank"
                   rel="noreferrer"
-                  className="inline-flex w-full items-center justify-center gap-2 rounded-full bg-ink px-5 py-4 text-sm font-medium text-white transition hover:bg-pine"
+                  className="inline-flex items-center justify-center gap-2 rounded-full bg-ink px-5 py-3 text-sm font-medium text-white transition hover:bg-pine"
                 >
                   <MessageCircleMore size={18} />
-                  Telegram orqali bog'lanish
+                  Telegram orqali yozish
                 </a>
               </div>
 
-              {featuredContacts.length > 0 ? (
-                <div className="mt-6 grid gap-4">
-                  {featuredContacts.map((contact) => {
-                    const phoneLink = getPhoneLink(contact.phone);
-                    const telegramProfile = getTelegramProfileLink(contact.telegram);
-
-                    return (
-                      <div key={contact.id} className="rounded-[24px] border border-black/6 bg-pearl/60 p-5">
-                        <p className="text-lg font-semibold text-ink">{contact.name || "Xodim"}</p>
-                        {contact.role ? <p className="mt-1 text-sm text-ink/55">{contact.role}</p> : null}
-                        <div className="mt-4 flex flex-col gap-3 sm:flex-row">
+              <div className="mt-6 grid gap-4">
+                {contactPeople.length > 0 ? (
+                  contactPeople.map((contact) => (
+                    <div key={contact.id} className="rounded-[28px] bg-pearl p-5">
+                      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+                        <div>
+                          <p className="text-xl font-semibold text-ink">{contact.name || "Xodim"}</p>
+                          {contact.role ? <p className="mt-1 text-sm text-ink/55">{contact.role}</p> : null}
+                        </div>
+                        <div className="flex flex-wrap gap-2">
                           {contact.phone ? (
                             <a
-                              href={phoneLink}
-                              className="inline-flex items-center justify-center gap-2 rounded-full bg-white px-4 py-3 text-sm font-medium text-ink transition hover:bg-white/80"
+                              href={getPhoneLink(contact.phone)}
+                              className="inline-flex items-center gap-2 rounded-full bg-white px-4 py-3 text-sm font-medium text-ink transition hover:bg-white/80"
                             >
                               <Phone size={16} />
                               {contact.phone}
@@ -324,29 +426,194 @@ export function HomePage() {
                           ) : null}
                           {contact.telegram ? (
                             <a
-                              href={telegramProfile}
+                              href={getTelegramProfileLink(contact.telegram)}
                               target="_blank"
                               rel="noreferrer"
-                              className="inline-flex items-center justify-center gap-2 rounded-full border border-black/10 bg-white px-4 py-3 text-sm font-medium text-ink transition hover:bg-white/80"
+                              className="inline-flex items-center gap-2 rounded-full border border-black/10 bg-white px-4 py-3 text-sm font-medium text-ink transition hover:bg-white/80"
                             >
                               <MessageCircleMore size={16} />
-                              Telegram profil
+                              Telegram
                             </a>
                           ) : null}
                         </div>
                       </div>
-                    );
-                  })}
-                </div>
-              ) : (
-                <div className="mt-6 rounded-[24px] border border-dashed border-black/10 bg-pearl/50 p-5 text-sm leading-7 text-ink/58">
-                  Aloqa ma'lumotlari yaqin orada yangilanadi. Hozircha umumiy Telegram havolasi orqali yozishingiz mumkin.
-                </div>
-              )}
+                    </div>
+                  ))
+                ) : (
+                  <div className="rounded-[28px] border border-dashed border-black/10 bg-pearl/55 p-6 text-sm leading-7 text-ink/58">
+                    Xodimlar kontaktlari shu yerda ko'rsatiladi.
+                  </div>
+                )}
+              </div>
             </div>
           </div>
         </AnimatedSection>
-      </div>
+      );
+    }
+
+    return null;
+  };
+
+  return (
+    <div className="pb-14">
+      <section className="relative min-h-[100svh] overflow-hidden">
+        <div className="absolute inset-0">
+          {heroSlides.length > 0 ? (
+            heroSlides.map((item, index) =>
+              isVideoUrl(item.url) ? (
+                <video
+                  key={item.id}
+                  src={item.url}
+                  autoPlay
+                  muted
+                  loop
+                  playsInline
+                  className={`absolute inset-0 h-full w-full object-cover transition-opacity duration-1000 ${
+                    index === heroIndex ? "opacity-100" : "opacity-0"
+                  }`}
+                />
+              ) : (
+                <img
+                  key={item.id}
+                  src={item.url}
+                  alt={hotelName}
+                  className={`absolute inset-0 h-full w-full object-cover transition-opacity duration-1000 ${
+                    index === heroIndex ? "opacity-100" : "opacity-0"
+                  }`}
+                />
+              ),
+            )
+          ) : (
+            <div className="absolute inset-0 bg-[linear-gradient(120deg,#0b1324_0%,#173865_52%,#1d6f63_100%)]" />
+          )}
+        </div>
+
+        <div className="absolute inset-0 bg-[linear-gradient(115deg,rgba(4,9,22,0.82)_0%,rgba(7,17,31,0.64)_36%,rgba(7,17,31,0.48)_58%,rgba(7,17,31,0.78)_100%)]" />
+        <div className="absolute inset-0 bg-[radial-gradient(circle_at_top,rgba(255,255,255,0.12)_0%,transparent_28%)]" />
+
+        <div className="relative mx-auto flex min-h-[100svh] max-w-7xl flex-col justify-between px-4 py-10 sm:px-6 lg:px-8 lg:py-14">
+          <div className="pt-24 text-white lg:pt-28">
+            <motion.div
+              initial={{ opacity: 0, y: 18 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.6, ease: [0.16, 1, 0.3, 1] }}
+              className="inline-flex items-center gap-2 rounded-full border border-white/14 bg-white/10 px-4 py-2 text-sm backdrop-blur"
+            >
+              <Sparkles size={16} />
+              Tabiat bag'ridagi hordiq
+            </motion.div>
+
+            <motion.h1
+              initial={{ opacity: 0, y: 22 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: 0.08, duration: 0.7, ease: [0.16, 1, 0.3, 1] }}
+              className="mt-6 max-w-5xl text-5xl font-semibold leading-[1.02] tracking-tight sm:text-6xl lg:text-7xl"
+            >
+              {hotelName}
+            </motion.h1>
+
+            <motion.p
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: 0.14, duration: 0.7, ease: [0.16, 1, 0.3, 1] }}
+              className="mt-5 max-w-2xl text-base leading-8 text-white/82 sm:text-lg"
+            >
+              {hotelDescription}
+            </motion.p>
+
+            <motion.div
+              initial={{ opacity: 0, y: 18 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: 0.2, duration: 0.7, ease: [0.16, 1, 0.3, 1] }}
+              className="mt-8 flex flex-col gap-3 sm:flex-row"
+            >
+              <Link
+                to="/paketlar"
+                className="inline-flex items-center justify-center rounded-full bg-white px-6 py-3 text-sm font-medium text-ink transition hover:bg-pearl"
+              >
+                Paketlarni ko'rish
+              </Link>
+              <Link
+                to="/bron"
+                className="inline-flex items-center justify-center gap-2 rounded-full border border-white/24 px-6 py-3 text-sm font-medium text-white transition hover:bg-white/10"
+              >
+                Bron qilish
+                <ArrowRight size={16} />
+              </Link>
+            </motion.div>
+          </div>
+
+          <AnimatedSection className="mt-12">
+            <div className="grid gap-4 lg:grid-cols-[1.15fr_0.85fr]">
+              <div className="grid gap-4 rounded-[32px] border border-white/10 bg-white/10 p-5 backdrop-blur-xl md:grid-cols-3">
+                <div className="rounded-[24px] bg-white/10 p-5">
+                  <p className="text-xs uppercase tracking-[0.28em] text-white/55">Paketlar</p>
+                  <p className="mt-3 text-3xl font-semibold text-white">{packages.length}</p>
+                  <p className="mt-2 text-sm leading-7 text-white/70">Tanlangan paketlar shu sahifada ko'rsatiladi.</p>
+                </div>
+                <div className="rounded-[24px] bg-white/10 p-5">
+                  <p className="text-xs uppercase tracking-[0.28em] text-white/55">Hero media</p>
+                  <p className="mt-3 text-3xl font-semibold text-white">{heroSlides.length}</p>
+                  <p className="mt-2 text-sm leading-7 text-white/70">Slayder shu rasmlar va videolardan tuziladi.</p>
+                </div>
+                <div className="rounded-[24px] bg-white/10 p-5">
+                  <p className="text-xs uppercase tracking-[0.28em] text-white/55">Kontaktlar</p>
+                  <p className="mt-3 text-3xl font-semibold text-white">{contactPeople.length}</p>
+                  <p className="mt-2 text-sm leading-7 text-white/70">Telefon va Telegram profillari public sahifada chiqadi.</p>
+                </div>
+              </div>
+
+              <div className="rounded-[32px] border border-white/10 bg-white/10 p-5 backdrop-blur-xl">
+                <p className="text-xs uppercase tracking-[0.28em] text-white/55">Slayder</p>
+                <p className="mt-3 text-lg font-semibold text-white">
+                  {activeHero ? "Faol hero media" : "Hero media hali tanlanmagan"}
+                </p>
+                <div className="mt-5 flex gap-2">
+                  {heroSlides.length > 0 ? (
+                    heroSlides.map((item, index) => (
+                      <button
+                        key={item.id}
+                        type="button"
+                        onClick={() => setHeroIndex(index)}
+                        className={`h-2.5 rounded-full transition-all ${
+                          index === heroIndex ? "w-10 bg-white" : "w-2.5 bg-white/40"
+                        }`}
+                        aria-label={`Hero slide ${index + 1}`}
+                      />
+                    ))
+                  ) : (
+                    <div className="rounded-full bg-white/12 px-3 py-1 text-xs text-white/72">
+                      Hero media hali tanlanmagan
+                    </div>
+                  )}
+                </div>
+                <div className="mt-5 flex flex-wrap gap-3">
+                  <a
+                    href={locationUrl}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="inline-flex items-center gap-2 rounded-full border border-white/18 px-4 py-3 text-sm font-medium text-white transition hover:bg-white/10"
+                  >
+                    <MapPinned size={16} />
+                    Joylashuv
+                  </a>
+                  <a
+                    href={telegramLink}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="inline-flex items-center gap-2 rounded-full border border-white/18 px-4 py-3 text-sm font-medium text-white transition hover:bg-white/10"
+                  >
+                    <MessageCircleMore size={16} />
+                    Telegram
+                  </a>
+                </div>
+              </div>
+            </div>
+          </AnimatedSection>
+        </div>
+      </section>
+
+      <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">{orderedSections.map(renderSection)}</div>
     </div>
   );
 }

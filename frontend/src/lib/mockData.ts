@@ -1,4 +1,4 @@
-import type { BookingRecord, MediaAsset, PackageRecord, SiteSettings } from "./types";
+import type { BookingRecord, ContentSection, MediaAsset, PackageRecord, SiteSettings } from "./types";
 
 export const mockPackages: PackageRecord[] = [
   {
@@ -89,10 +89,116 @@ export const mockBookings: BookingRecord[] = [
 
 export const mockSiteSettings: SiteSettings = {
   id: 1,
-  location_label: "Bizning manzilimiz",
+  hotel_name: "Ravotsoy Dam Olish Maskani",
   location_url: "https://yandex.com/maps/-/CHeC5WPL",
-  maps_embed_url: "",
-  contacts_button_label: "",
-  contacts_button_url: "",
+  description:
+    "Tabiat manzarasi, shinam muhit va oilaviy hordiq uchun mo'ljallangan tunab qolish hamda kunlik dam olish paketlari.",
+  about_text:
+    "Ravotsoy Dam olish Maskani mehmonlarga sokin muhit, keng hudud va sifatli hordiq tajribasini taqdim etadi. Oilaviy sayohat, do'stlar davrasi yoki qisqa kunlik dam olish uchun qulay yechimlar tayyorlangan.",
+  hero_images: ["hero-1"],
   contact_people: [],
 };
+
+export const mockHomeSections: ContentSection[] = [
+  {
+    id: "section-about",
+    page: "home",
+    section_type: "about",
+    eyebrow: "Biz haqimizda",
+    title: "Ravotsoyda tabiiy tinchlik va qulay dam olish birlashadi",
+    description: "",
+    content: {},
+    sort_order: 10,
+    is_enabled: true,
+  },
+  {
+    id: "section-highlights",
+    page: "home",
+    section_type: "highlights",
+    eyebrow: "Afzalliklar",
+    title: "Mehmonlarga yoqadigan asosiy jihatlar",
+    description: "",
+    content: {
+      cards: [
+        {
+          id: "nature",
+          title: "Tabiat",
+          description: "Ochiq havo, manzara va osoyishta muhit.",
+          icon: "trees",
+        },
+        {
+          id: "comfort",
+          title: "Qulaylik",
+          description: "Toza, shinam va mehmonlar uchun mos tayyor joylar.",
+          icon: "sparkles",
+        },
+        {
+          id: "contact",
+          title: "Aloqa",
+          description: "Telegram orqali tezkor javob va bron bo'yicha yordam.",
+          icon: "message-circle",
+        },
+      ],
+    },
+    sort_order: 20,
+    is_enabled: true,
+  },
+  {
+    id: "section-packages",
+    page: "home",
+    section_type: "packages",
+    eyebrow: "Paketlar",
+    title: "Tanlangan paketlar",
+    description: "",
+    content: {},
+    sort_order: 30,
+    is_enabled: true,
+  },
+  {
+    id: "section-sightseeing",
+    page: "home",
+    section_type: "sightseeing",
+    eyebrow: "Atrofdagi maskanlar",
+    title: "Ravotsoy atrofida ko'rish mumkin bo'lgan joylar",
+    description:
+      "Dam olish davomida yaqin hududdagi manzarali joylar va sayr uchun qiziqarli nuqtalarni ham ko'rib chiqishingiz mumkin.",
+    content: {
+      places: [
+        {
+          id: "ravotsoy-view",
+          name: "Ravotsoy manzarali hududi",
+          description: "Tonggi sayr va sokin manzara uchun mos ochiq hudud.",
+        },
+        {
+          id: "family-picnic",
+          name: "Oilaviy piknik joylari",
+          description: "Qisqa dam olish va suratga tushish uchun qulay joylar.",
+        },
+      ],
+    },
+    sort_order: 40,
+    is_enabled: true,
+  },
+  {
+    id: "section-gallery",
+    page: "home",
+    section_type: "gallery",
+    eyebrow: "Galereya",
+    title: "Hudud va muhit",
+    description: "",
+    content: {},
+    sort_order: 50,
+    is_enabled: true,
+  },
+  {
+    id: "section-contacts",
+    page: "home",
+    section_type: "contacts",
+    eyebrow: "Aloqa",
+    title: "Biz bilan bog'laning",
+    description: "Bron, bo'sh joylar va qo'shimcha ma'lumot uchun xodimlarimiz bilan bog'laning.",
+    content: {},
+    sort_order: 60,
+    is_enabled: true,
+  },
+];

@@ -1,13 +1,20 @@
 import type { Session } from "@supabase/supabase-js";
 import {
+  ArrowDown,
+  ArrowUp,
   Boxes,
   CalendarRange,
   Check,
   Clock3,
+  GripVertical,
   Image as ImageIcon,
   LoaderCircle,
   LogOut,
+  MessageCircleMore,
   Pencil,
+  Phone,
+  Plus,
+  Save,
   ShieldCheck,
   Trash2,
   Upload,
@@ -17,9 +24,12 @@ import { type FormEvent, type ReactNode, useEffect, useMemo, useState } from "re
 import { useNavigate } from "react-router-dom";
 import {
   deleteBooking,
+  deleteHomeSection,
+  deleteMediaAsset,
   deletePackage,
-  getAdminSession,
   getAdminBookings,
+  getAdminSession,
+  getHomeSections,
   getMediaAssets,
   getPackages,
   getSiteSettings,
@@ -29,20 +39,25 @@ import {
   updateBookingStatus,
   uploadMediaAsset,
   uploadPackageImage,
-  upsertSiteSettings,
+  upsertHomeSection,
   upsertPackage,
+  upsertSiteSettings,
 } from "../lib/api";
 import { hasSupabaseConfig } from "../lib/supabase";
 import type {
   BookingRecord,
+  ContentSection,
+  ContentSectionType,
+  HomeFeatureCard,
   MediaAsset,
   MediaKind,
-  PublicContact,
   PackageInput,
   PackageRecord,
+  PublicContact,
+  SightseeingPlace,
   SiteSettings,
 } from "../lib/types";
-import { cn, formatCurrency, isVideoUrl } from "../lib/utils";
+import { cn, formatCurrency, getPhoneLink, getTelegramProfileLink, isVideoUrl } from "../lib/utils";
 
 const emptyPackage: PackageInput = {
   name: "",
@@ -54,22 +69,109 @@ const emptyPackage: PackageInput = {
 };
 
 const emptySiteSettings: Omit<SiteSettings, "id"> = {
-  location_label: "Bizning manzilimiz",
+  hotel_name: "",
+  description: "",
   location_url: "https://yandex.com/maps/-/CHeC5WPL",
-  maps_embed_url: "",
-  contacts_button_label: "",
-  contacts_button_url: "",
+  about_text: "",
+  hero_images: [],
   contact_people: [],
 };
 
+const sectionTypeOptions: Array<{ value: ContentSectionType; label: string }> = [
+  { value: "about", label: "About" },
+  { value: "highlights", label: "Highlights" },
+  { value: "packages", label: "Packages" },
+  { value: "gallery", label: "Gallery" },
+  { value: "sightseeing", label: "Sightseeing" },
+  { value: "contacts", label: "Contacts" },
+];
+
 function createEmptyContact(): PublicContact {
+  return { id: crypto.randomUUID(), name: "", role: "", phone: "", telegram: "" };
+}
+
+function createFeatureCard(): HomeFeatureCard {
+  return { id: crypto.randomUUID(), title: "", description: "", icon: "sparkles" };
+}
+
+function createSightseeingPlace(): SightseeingPlace {
+  return { id: crypto.randomUUID(), name: "", description: "" };
+}
+
+function createSection(type: ContentSectionType, sortOrder: number): Omit<ContentSection, "id"> {
+  const title =
+    type === "about"
+      ? "Biz haqimizda"
+      : type === "highlights"
+        ? "Afzalliklar"
+        : type === "packages"
+          ? "Paketlar"
+          : type === "gallery"
+            ? "Galereya"
+            : type === "sightseeing"
+              ? "Sayr joylari"
+              : "Aloqa";
+
   return {
-    id: crypto.randomUUID(),
-    name: "",
-    role: "",
-    phone: "",
-    telegram: "",
+    page: "home",
+    section_type: type,
+    eyebrow: "",
+    title,
+    description: "",
+    content:
+      type === "highlights"
+        ? { cards: [createFeatureCard(), createFeatureCard(), createFeatureCard()] }
+        : type === "sightseeing"
+          ? { places: [createSightseeingPlace(), createSightseeingPlace()] }
+          : {},
+    sort_order: sortOrder,
+    is_enabled: true,
   };
+}
+
+function getSectionTypeLabel(type: ContentSectionType) {
+  return sectionTypeOptions.find((item) => item.value === type)?.label ?? type;
+}
+
+function readFeatureCards(section: ContentSection): HomeFeatureCard[] {
+  const value = section.content.cards;
+
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  return value.map((item) => {
+    const record = item as Record<string, unknown>;
+    const icon = String(record.icon ?? "sparkles") as HomeFeatureCard["icon"];
+
+    return {
+      id: String(record.id ?? crypto.randomUUID()),
+      title: String(record.title ?? ""),
+      description: String(record.description ?? ""),
+      icon:
+        icon === "trees" || icon === "sparkles" || icon === "message-circle" || icon === "map-pinned"
+          ? icon
+          : "sparkles",
+    };
+  });
+}
+
+function readPlaces(section: ContentSection): SightseeingPlace[] {
+  const value = section.content.places;
+
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  return value.map((item) => {
+    const record = item as Record<string, unknown>;
+
+    return {
+      id: String(record.id ?? crypto.randomUUID()),
+      name: String(record.name ?? ""),
+      description: String(record.description ?? ""),
+    };
+  });
 }
 
 function statusLabel(status: BookingRecord["status"]) {
@@ -150,6 +252,14 @@ function inputClassName() {
   return "w-full rounded-2xl border border-black/10 bg-pearl px-4 py-3 outline-none transition focus:border-pine";
 }
 
+function textareaClassName() {
+  return "min-h-[120px] w-full rounded-2xl border border-black/10 bg-pearl px-4 py-3 outline-none transition focus:border-pine";
+}
+
+function iconButtonClassName() {
+  return "inline-flex h-10 w-10 items-center justify-center rounded-full border border-black/10 bg-white text-ink transition hover:bg-pearl";
+}
+
 export function AdminPage() {
   const navigate = useNavigate();
   const [session, setSession] = useState<Session | null>(null);
@@ -158,6 +268,7 @@ export function AdminPage() {
   const [packages, setPackages] = useState<PackageRecord[]>([]);
   const [bookings, setBookings] = useState<BookingRecord[]>([]);
   const [media, setMedia] = useState<MediaAsset[]>([]);
+  const [homeSections, setHomeSections] = useState<ContentSection[]>([]);
   const [siteSettings, setSiteSettings] = useState<Omit<SiteSettings, "id">>(emptySiteSettings);
   const [packageForm, setPackageForm] = useState<PackageInput>(emptyPackage);
   const [packageImageFile, setPackageImageFile] = useState<File | null>(null);
@@ -170,6 +281,7 @@ export function AdminPage() {
     packageId: "",
     file: null as File | null,
   });
+  const [newSectionType, setNewSectionType] = useState<ContentSectionType>("about");
   const [notice, setNotice] = useState("");
   const [error, setError] = useState("");
 
@@ -179,22 +291,30 @@ export function AdminPage() {
     navigate("/admin-login", { replace: true });
   };
 
+  const resetMessages = () => {
+    setError("");
+    setNotice("");
+  };
+
   const refresh = async () => {
-    const [packagesData, bookingsData, mediaData, settingsData] = await Promise.all([
+    const [packagesData, bookingsData, mediaData, settingsData, sectionsData] = await Promise.all([
       getPackages(),
       getAdminBookings(),
       getMediaAssets(),
       getSiteSettings(),
+      getHomeSections(),
     ]);
+
     setPackages(packagesData);
     setBookings(bookingsData);
     setMedia(mediaData);
+    setHomeSections(sectionsData);
     setSiteSettings({
-      location_label: settingsData.location_label,
-      location_url: settingsData.location_url,
-      maps_embed_url: settingsData.maps_embed_url ?? "",
-      contacts_button_label: settingsData.contacts_button_label ?? "",
-      contacts_button_url: settingsData.contacts_button_url ?? "",
+      hotel_name: settingsData.hotel_name ?? "",
+      description: settingsData.description ?? "",
+      location_url: settingsData.location_url ?? "",
+      about_text: settingsData.about_text ?? "",
+      hero_images: settingsData.hero_images ?? [],
       contact_people: settingsData.contact_people ?? [],
     });
   };
@@ -253,11 +373,6 @@ export function AdminPage() {
     return unsubscribe;
   }, [navigate]);
 
-  const resetMessages = () => {
-    setError("");
-    setNotice("");
-  };
-
   const runAction = async (action: () => Promise<void>, successText: string) => {
     setWorking(true);
     resetMessages();
@@ -272,6 +387,44 @@ export function AdminPage() {
     } finally {
       setWorking(false);
     }
+  };
+
+  const updateSectionState = (sectionId: string, updater: (section: ContentSection) => ContentSection) => {
+    setHomeSections((current) => current.map((section) => (section.id === sectionId ? updater(section) : section)));
+  };
+
+  const persistSectionOrder = async (sections: ContentSection[]) => {
+    await Promise.all(
+      sections.map((section, index) =>
+        upsertHomeSection({
+          ...section,
+          sort_order: (index + 1) * 10,
+        }),
+      ),
+    );
+  };
+
+  const saveSiteSettings = async () => {
+    await upsertSiteSettings({
+      hotel_name: siteSettings.hotel_name?.trim() ?? "",
+      description: siteSettings.description?.trim() ?? "",
+      location_url: siteSettings.location_url.trim(),
+      about_text: siteSettings.about_text?.trim() ?? "",
+      hero_images: (siteSettings.hero_images ?? []).filter(Boolean),
+      contact_people:
+        siteSettings.contact_people?.map((item) => ({
+          id: item.id,
+          name: item.name.trim(),
+          role: item.role.trim(),
+          phone: item.phone.trim(),
+          telegram: item.telegram.trim(),
+        })) ?? [],
+    });
+  };
+
+  const handleSiteSettingsSubmit = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    await runAction(saveSiteSettings, "Sayt sozlamalari saqlandi.");
   };
 
   const handlePackageSubmit = async (event: FormEvent<HTMLFormElement>) => {
@@ -303,24 +456,17 @@ export function AdminPage() {
     event.preventDefault();
 
     if (!mediaForm.file) {
-      setError("Hero yoki galereya faylini tanlang.");
+      setError("Hero yoki galereya uchun media fayl tanlang.");
       return;
     }
 
-    setWorking(true);
-    resetMessages();
-
-    try {
-      await uploadMediaAsset(mediaForm.file, mediaForm.kind);
-      await refresh();
-      setMediaForm({ kind: "hero", file: null });
-      setNotice("Media muvaffaqiyatli yuklandi.");
-    } catch (uploadError) {
-      console.error(uploadError);
-      setError("Media yuklashda xatolik yuz berdi.");
-    } finally {
-      setWorking(false);
-    }
+    await runAction(
+      async () => {
+        await uploadMediaAsset(mediaForm.file!, mediaForm.kind);
+        setMediaForm({ kind: "hero", file: null });
+      },
+      "Media muvaffaqiyatli yuklandi.",
+    );
   };
 
   const handlePackageImageUpload = async (event: FormEvent<HTMLFormElement>) => {
@@ -331,51 +477,76 @@ export function AdminPage() {
       return;
     }
 
-    setWorking(true);
-    resetMessages();
-
-    try {
-      await uploadPackageImage(packageImageForm.file, packageImageForm.packageId);
-      await refresh();
-      setPackageImageForm({ packageId: "", file: null });
-      setNotice("Paket rasmi yuklandi.");
-    } catch (uploadError) {
-      console.error(uploadError);
-      setError("Paket rasmini yuklashda xatolik yuz berdi.");
-    } finally {
-      setWorking(false);
-    }
+    await runAction(
+      async () => {
+        await uploadPackageImage(packageImageForm.file!, packageImageForm.packageId);
+        setPackageImageForm({ packageId: "", file: null });
+      },
+      "Paket rasmi yuklandi.",
+    );
   };
 
-  const handleSiteSettingsSubmit = async (event: FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
-    setWorking(true);
-    resetMessages();
+  const handleDeleteMedia = async (asset: MediaAsset) => {
+    await runAction(
+      async () => {
+        await deleteMediaAsset(asset);
 
-    try {
-      await upsertSiteSettings({
-        location_label: siteSettings.location_label.trim(),
-        location_url: siteSettings.location_url.trim(),
-        maps_embed_url: siteSettings.maps_embed_url?.trim() ?? "",
-        contacts_button_label: siteSettings.contacts_button_label?.trim() ?? "",
-        contacts_button_url: siteSettings.contacts_button_url?.trim() ?? "",
-        contact_people:
-          siteSettings.contact_people?.map((item) => ({
-            id: item.id,
-            name: item.name.trim(),
-            role: item.role.trim(),
-            phone: item.phone.trim(),
-            telegram: item.telegram.trim(),
-          })) ?? [],
-      });
-      await refresh();
-      setNotice("Sayt sozlamalari saqlandi.");
-    } catch (submitError) {
-      console.error(submitError);
-      setError("Sayt sozlamalarini saqlashda xatolik yuz berdi.");
-    } finally {
-      setWorking(false);
+        if (asset.type === "hero" && (siteSettings.hero_images ?? []).includes(asset.id)) {
+          await upsertSiteSettings({
+            ...siteSettings,
+            hero_images: (siteSettings.hero_images ?? []).filter((id) => id !== asset.id),
+          });
+        }
+      },
+      "Media o'chirildi.",
+    );
+  };
+
+  const handleCreateSection = async () => {
+    const nextSortOrder = (homeSections.length + 1) * 10;
+
+    await runAction(
+      async () => {
+        await upsertHomeSection(createSection(newSectionType, nextSortOrder));
+      },
+      "Yangi bo'lim yaratildi.",
+    );
+  };
+
+  const handleSaveSection = async (section: ContentSection) => {
+    await runAction(
+      async () => {
+        await upsertHomeSection({
+          ...section,
+          eyebrow: section.eyebrow.trim(),
+          title: section.title.trim(),
+          description: section.description.trim(),
+        });
+      },
+      "Bo'lim saqlandi.",
+    );
+  };
+
+  const handleMoveSection = async (sectionId: string, direction: "up" | "down") => {
+    const currentSections = [...homeSections].sort((left, right) => left.sort_order - right.sort_order);
+    const currentIndex = currentSections.findIndex((section) => section.id === sectionId);
+
+    if (currentIndex < 0) {
+      return;
     }
+
+    const targetIndex = direction === "up" ? currentIndex - 1 : currentIndex + 1;
+
+    if (targetIndex < 0 || targetIndex >= currentSections.length) {
+      return;
+    }
+
+    const nextSections = [...currentSections];
+    const [selected] = nextSections.splice(currentIndex, 1);
+    nextSections.splice(targetIndex, 0, selected);
+    setHomeSections(nextSections.map((section, index) => ({ ...section, sort_order: (index + 1) * 10 })));
+
+    await runAction(async () => persistSectionOrder(nextSections), "Bo'limlar tartibi yangilandi.");
   };
 
   const pendingCount = bookings.filter((booking) => booking.status === "pending").length;
@@ -384,6 +555,10 @@ export function AdminPage() {
   const galleryMedia = media.filter((item) => item.type === "gallery");
   const packageMedia = media.filter((item) => item.type === "package");
   const recentBookings = useMemo(() => bookings.slice(0, 6), [bookings]);
+  const orderedSections = useMemo(
+    () => [...homeSections].sort((left, right) => left.sort_order - right.sort_order),
+    [homeSections],
+  );
 
   if (!hasSupabaseConfig) {
     return (
@@ -393,7 +568,7 @@ export function AdminPage() {
           <h1 className="mt-3 text-4xl font-semibold tracking-tight">Supabase sozlanmagan</h1>
           <p className="mt-4 text-sm leading-7 text-ink/65">
             `frontend/.env` ichiga `VITE_SUPABASE_URL` va `VITE_SUPABASE_ANON_KEY`
-            qiymatlarini kiriting. So'ng admin foydalanuvchini `Supabase Auth` orqali yarating.
+            qiymatlarini kiriting.
           </p>
         </div>
       </div>
@@ -433,14 +608,14 @@ export function AdminPage() {
               <div className="max-w-3xl">
                 <div className="inline-flex items-center gap-2 rounded-full border border-white/12 bg-white/8 px-4 py-2 text-xs uppercase tracking-[0.3em] text-white/72">
                   <ShieldCheck size={16} />
-                  Admin panel
+                  CMS admin
                 </div>
                 <h1 className="mt-5 text-4xl font-semibold tracking-tight sm:text-5xl">
-                  Paketlar, bronlar va media boshqaruvi
+                  Kontent, media va bron boshqaruvi
                 </h1>
                 <p className="mt-4 text-sm leading-8 text-white/72 sm:text-base">
-                  Shu panel orqali yangi paket yaratish, kelgan bronlarni tasdiqlash yoki rad
-                  etish, shuningdek hero, galereya va paket rasmlarini boshqarish mumkin.
+                  Public sayt uchun barcha ko'rinadigan ma'lumotlar, hero slayder, galereya,
+                  sightseeing bloklari, kontaktlar va paketlar shu yerdan boshqariladi.
                 </p>
               </div>
 
@@ -468,7 +643,7 @@ export function AdminPage() {
               <StatCard icon={<Boxes size={20} />} label="Paketlar" value={packages.length} hint="Faol paketlar soni" />
               <StatCard icon={<Clock3 size={20} />} label="Kutilmoqda" value={pendingCount} hint="Javob kutayotgan bronlar" />
               <StatCard icon={<Check size={20} />} label="Tasdiqlangan" value={approvedCount} hint="Tasdiqlangan bronlar" />
-              <StatCard icon={<ImageIcon size={20} />} label="Media" value={media.length} hint="Jami yuklangan fayllar" />
+              <StatCard icon={<ImageIcon size={20} />} label="Media" value={media.length} hint="Hero, galereya va paket fayllari" />
             </div>
           </div>
         </div>
@@ -486,21 +661,21 @@ export function AdminPage() {
         </div>
       ) : null}
 
-      <div className="mt-6">
+      <div className="mt-6 grid gap-6 xl:grid-cols-[1.05fr_0.95fr]">
         <SectionCard
           title="Sayt sozlamalari"
-          description="Yandex joylashuv havolasi va foydalanuvchilarga ko'rinadigan xodimlar kontaktlarini shu yerdan boshqaring."
+          description="Asosiy public kontent, hero slayder tartibi, joylashuv va xodimlar kontaktlarini shu yerdan boshqaring."
         >
           <form className="grid gap-4 lg:grid-cols-2" onSubmit={handleSiteSettingsSubmit}>
             <label className="space-y-2 text-sm text-ink/70">
-              <span>Joylashuv nomi</span>
+              <span>Hotel nomi</span>
               <input
                 required
-                value={siteSettings.location_label}
+                value={siteSettings.hotel_name ?? ""}
                 onChange={(event) =>
                   setSiteSettings((current) => ({
                     ...current,
-                    location_label: event.target.value,
+                    hotel_name: event.target.value,
                   }))
                 }
                 className={inputClassName()}
@@ -524,30 +699,137 @@ export function AdminPage() {
             </label>
 
             <label className="space-y-2 text-sm text-ink/70 lg:col-span-2">
-              <span>Xarita embed URL</span>
-              <input
-                type="url"
-                placeholder="https://..."
-                value={siteSettings.maps_embed_url ?? ""}
+              <span>Qisqa tavsif</span>
+              <textarea
+                value={siteSettings.description ?? ""}
                 onChange={(event) =>
                   setSiteSettings((current) => ({
                     ...current,
-                    maps_embed_url: event.target.value,
+                    description: event.target.value,
                   }))
                 }
-                className={inputClassName()}
+                className={textareaClassName()}
               />
-              <p className="text-xs leading-5 text-ink/45">
-                Hozir public sahifada Yandex xarita havolasi ishlatiladi. Bu maydonni bo'sh qoldirishingiz mumkin.
-              </p>
             </label>
 
-            <div className="lg:col-span-2 space-y-4 rounded-[28px] bg-pearl p-5">
+            <label className="space-y-2 text-sm text-ink/70 lg:col-span-2">
+              <span>About matni</span>
+              <textarea
+                value={siteSettings.about_text ?? ""}
+                onChange={(event) =>
+                  setSiteSettings((current) => ({
+                    ...current,
+                    about_text: event.target.value,
+                  }))
+                }
+                className={textareaClassName()}
+              />
+            </label>
+
+            <div className="space-y-4 rounded-[28px] bg-pearl p-5 lg:col-span-2">
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                <div>
+                  <p className="text-lg font-semibold text-ink">Hero slider</p>
+                  <p className="mt-1 text-sm leading-6 text-ink/58">
+                    Yuklangan hero media ichidan public bosh sahifada chiqadigan slaydlarni tanlang va tartiblang.
+                  </p>
+                </div>
+              </div>
+
+              <div className="grid gap-4 md:grid-cols-2">
+                {heroMedia.length > 0 ? (
+                  heroMedia.map((item) => {
+                    const isSelected = (siteSettings.hero_images ?? []).includes(item.id);
+                    const orderIndex = (siteSettings.hero_images ?? []).indexOf(item.id);
+
+                    return (
+                      <div key={item.id} className="rounded-[24px] border border-black/8 bg-white/85 p-4">
+                        <div className="overflow-hidden rounded-[20px]">
+                          {isVideoUrl(item.url) ? (
+                            <video src={item.url} controls className="h-40 w-full object-cover" />
+                          ) : (
+                            <img src={item.url} alt="Hero media" className="h-40 w-full object-cover" />
+                          )}
+                        </div>
+                        <div className="mt-4 flex items-center justify-between gap-3">
+                          <div>
+                            <p className="text-sm font-medium text-ink">{isSelected ? `Slayd ${orderIndex + 1}` : "Tanlanmagan"}</p>
+                            <p className="text-xs text-ink/45">{item.id}</p>
+                          </div>
+                          <div className="flex gap-2">
+                            <button
+                              type="button"
+                              onClick={() =>
+                                setSiteSettings((current) => ({
+                                  ...current,
+                                  hero_images: isSelected
+                                    ? (current.hero_images ?? []).filter((id) => id !== item.id)
+                                    : [...(current.hero_images ?? []), item.id],
+                                }))
+                              }
+                              className="rounded-full border border-black/10 bg-white px-4 py-2 text-sm font-medium text-ink transition hover:bg-pearl"
+                            >
+                              {isSelected ? "Olib tashlash" : "Tanlash"}
+                            </button>
+                            {isSelected ? (
+                              <>
+                                <button
+                                  type="button"
+                                  onClick={() =>
+                                    setSiteSettings((current) => {
+                                      const heroImages = [...(current.hero_images ?? [])];
+                                      const index = heroImages.indexOf(item.id);
+
+                                      if (index > 0) {
+                                        [heroImages[index - 1], heroImages[index]] = [heroImages[index], heroImages[index - 1]];
+                                      }
+
+                                      return { ...current, hero_images: heroImages };
+                                    })
+                                  }
+                                  className={iconButtonClassName()}
+                                >
+                                  <ArrowUp size={16} />
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() =>
+                                    setSiteSettings((current) => {
+                                      const heroImages = [...(current.hero_images ?? [])];
+                                      const index = heroImages.indexOf(item.id);
+
+                                      if (index >= 0 && index < heroImages.length - 1) {
+                                        [heroImages[index], heroImages[index + 1]] = [heroImages[index + 1], heroImages[index]];
+                                      }
+
+                                      return { ...current, hero_images: heroImages };
+                                    })
+                                  }
+                                  className={iconButtonClassName()}
+                                >
+                                  <ArrowDown size={16} />
+                                </button>
+                              </>
+                            ) : null}
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })
+                ) : (
+                  <div className="rounded-[24px] border border-dashed border-black/10 bg-white/70 p-6 text-sm text-ink/58 md:col-span-2">
+                    Hero media hali yuklanmagan.
+                  </div>
+                )}
+              </div>
+            </div>
+
+            <div className="space-y-4 rounded-[28px] bg-pearl p-5 lg:col-span-2">
               <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                 <div>
                   <p className="text-lg font-semibold text-ink">Xodimlar kontaktlari</p>
                   <p className="mt-1 text-sm leading-6 text-ink/58">
-                    Telefon raqami va Telegram profilini kiritsangiz ular public saytda ko'rinadi.
+                    Telefon va Telegram ma'lumotlari public saytda chiqadi.
                   </p>
                 </div>
                 <button
@@ -565,7 +847,7 @@ export function AdminPage() {
               </div>
 
               <div className="grid gap-4">
-                {(siteSettings.contact_people ?? []).map((contact, index) => (
+                {(siteSettings.contact_people ?? []).map((contact) => (
                   <div key={contact.id} className="grid gap-4 rounded-[24px] border border-black/8 bg-white/80 p-4 lg:grid-cols-2">
                     <label className="space-y-2 text-sm text-ink/70">
                       <span>Ism</span>
@@ -603,7 +885,6 @@ export function AdminPage() {
                       <span>Telefon</span>
                       <input
                         value={contact.phone}
-                        placeholder="+998 90 123 45 67"
                         onChange={(event) =>
                           setSiteSettings((current) => ({
                             ...current,
@@ -620,7 +901,6 @@ export function AdminPage() {
                       <span>Telegram</span>
                       <input
                         value={contact.telegram}
-                        placeholder="@username yoki https://t.me/username"
                         onChange={(event) =>
                           setSiteSettings((current) => ({
                             ...current,
@@ -633,10 +913,26 @@ export function AdminPage() {
                       />
                     </label>
 
-                    <div className="lg:col-span-2 flex justify-between gap-3">
-                      <p className="text-xs leading-5 text-ink/45">
-                        Kontakt #{index + 1} public saytning aloqa bo'limida ko'rsatiladi.
-                      </p>
+                    <div className="flex items-center justify-between rounded-[20px] bg-pearl/70 px-4 py-3 lg:col-span-2">
+                      <div className="flex flex-wrap gap-2 text-xs text-ink/45">
+                        {contact.phone ? (
+                          <a href={getPhoneLink(contact.phone)} className="inline-flex items-center gap-1 rounded-full bg-white px-3 py-2 text-ink">
+                            <Phone size={12} />
+                            Qo'ng'iroq
+                          </a>
+                        ) : null}
+                        {contact.telegram ? (
+                          <a
+                            href={getTelegramProfileLink(contact.telegram)}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="inline-flex items-center gap-1 rounded-full bg-white px-3 py-2 text-ink"
+                          >
+                            <MessageCircleMore size={12} />
+                            Telegram
+                          </a>
+                        ) : null}
+                      </div>
                       <button
                         type="button"
                         onClick={() =>
@@ -645,8 +941,9 @@ export function AdminPage() {
                             contact_people: (current.contact_people ?? []).filter((item) => item.id !== contact.id),
                           }))
                         }
-                        className="rounded-full border border-red-200 px-4 py-2 text-sm font-medium text-red-700 transition hover:bg-red-50"
+                        className="inline-flex items-center gap-2 rounded-full border border-red-200 px-4 py-2 text-sm font-medium text-red-700 transition hover:bg-red-50"
                       >
+                        <Trash2 size={14} />
                         O'chirish
                       </button>
                     </div>
@@ -654,48 +951,510 @@ export function AdminPage() {
                 ))}
 
                 {(siteSettings.contact_people ?? []).length === 0 ? (
-                  <div className="rounded-[24px] border border-dashed border-black/10 bg-white/70 p-4 text-sm text-ink/55">
-                    Hozircha xodim kontaktlari qo'shilmagan.
+                  <div className="rounded-[24px] border border-dashed border-black/10 bg-white/70 p-6 text-sm text-ink/58">
+                    Hali xodim kontaktlari qo'shilmagan.
                   </div>
                 ) : null}
               </div>
             </div>
 
-            <div className="lg:col-span-2">
-              <button
-                type="submit"
-                disabled={working}
-                className="inline-flex items-center justify-center gap-2 rounded-full bg-ink px-5 py-3 text-sm font-medium text-white transition hover:bg-pine disabled:cursor-not-allowed disabled:bg-ink/60"
+            <button
+              type="submit"
+              disabled={working}
+              className="inline-flex items-center justify-center gap-2 rounded-full bg-ink px-5 py-3 text-sm font-medium text-white transition hover:bg-pine disabled:cursor-not-allowed disabled:bg-ink/60"
+            >
+              {working ? <LoaderCircle className="animate-spin" size={16} /> : <Save size={16} />}
+              Sayt sozlamalarini saqlash
+            </button>
+          </form>
+        </SectionCard>
+
+        <SectionCard
+          title="Media boshqaruvi"
+          description="Hero, galereya va paket rasmlarini shu yerdan yuklang va o'chiring."
+        >
+          <form className="space-y-4 rounded-[28px] bg-pearl p-5" onSubmit={handleMediaUpload}>
+            <h3 className="text-lg font-semibold text-ink">Hero va galereya media</h3>
+            <label className="space-y-2 text-sm text-ink/70">
+              <span>Bo'lim</span>
+              <select
+                value={mediaForm.kind}
+                onChange={(event) =>
+                  setMediaForm((current) => ({
+                    ...current,
+                    kind: event.target.value as Exclude<MediaKind, "package">,
+                  }))
+                }
+                className={inputClassName()}
               >
-                {working ? <LoaderCircle className="animate-spin" size={16} /> : null}
-                Sozlamalarni saqlash
-              </button>
-            </div>
+                <option value="hero">Hero</option>
+                <option value="gallery">Gallery</option>
+              </select>
+            </label>
+            <label className="space-y-2 text-sm text-ink/70">
+              <span>Fayl</span>
+              <input
+                required
+                type="file"
+                accept="image/*,video/*"
+                onChange={(event) =>
+                  setMediaForm((current) => ({
+                    ...current,
+                    file: event.target.files?.[0] ?? null,
+                  }))
+                }
+                className={inputClassName()}
+              />
+            </label>
+            <button
+              type="submit"
+              disabled={working}
+              className="inline-flex items-center justify-center gap-2 rounded-full bg-ink px-5 py-3 text-sm font-medium text-white transition hover:bg-pine disabled:cursor-not-allowed disabled:bg-ink/60"
+            >
+              {working ? <LoaderCircle className="animate-spin" size={16} /> : <Upload size={16} />}
+              Media yuklash
+            </button>
+          </form>
+
+          <form className="mt-6 space-y-4 rounded-[28px] bg-pearl p-5" onSubmit={handlePackageImageUpload}>
+            <h3 className="text-lg font-semibold text-ink">Paket rasmi yuklash</h3>
+            <label className="space-y-2 text-sm text-ink/70">
+              <span>Paket</span>
+              <select
+                value={packageImageForm.packageId}
+                onChange={(event) =>
+                  setPackageImageForm((current) => ({
+                    ...current,
+                    packageId: event.target.value,
+                  }))
+                }
+                className={inputClassName()}
+              >
+                <option value="">Paketni tanlang</option>
+                {packages.map((item) => (
+                  <option key={item.id} value={item.id}>
+                    {item.name}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="space-y-2 text-sm text-ink/70">
+              <span>Rasm fayli</span>
+              <input
+                required
+                type="file"
+                accept="image/*"
+                onChange={(event) =>
+                  setPackageImageForm((current) => ({
+                    ...current,
+                    file: event.target.files?.[0] ?? null,
+                  }))
+                }
+                className={inputClassName()}
+              />
+            </label>
+            <button
+              type="submit"
+              disabled={working}
+              className="inline-flex items-center justify-center gap-2 rounded-full bg-ink px-5 py-3 text-sm font-medium text-white transition hover:bg-pine disabled:cursor-not-allowed disabled:bg-ink/60"
+            >
+              {working ? <LoaderCircle className="animate-spin" size={16} /> : <Upload size={16} />}
+              Paket rasmini yuklash
+            </button>
           </form>
         </SectionCard>
       </div>
 
-      <div className="mt-6 grid gap-6 2xl:grid-cols-[1.02fr_0.98fr]">
+      <div className="mt-6 grid gap-6 xl:grid-cols-[1.02fr_0.98fr]">
         <SectionCard
-          title={editingPackageId ? "Paketni tahrirlash" : "Yangi paket yaratish"}
-          description="Paket ma'lumotlarini kiriting, kerak bo'lsa darhol asosiy rasm ham yuklang."
+          title="Bosh sahifa bo'limlari"
+          description="Homepage sectionlarini yoqish/o'chirish, tahrirlash va tartiblash mumkin."
           action={
-            editingPackageId ? (
+            <div className="flex flex-col gap-3 sm:flex-row">
+              <select
+                value={newSectionType}
+                onChange={(event) => setNewSectionType(event.target.value as ContentSectionType)}
+                className={inputClassName()}
+              >
+                {sectionTypeOptions.map((item) => (
+                  <option key={item.value} value={item.value}>
+                    {item.label}
+                  </option>
+                ))}
+              </select>
               <button
                 type="button"
-                onClick={() => {
-                  setEditingPackageId(null);
-                  setPackageForm(emptyPackage);
-                  setPackageImageFile(null);
-                }}
-                className="rounded-full border border-black/10 px-4 py-2 text-sm font-medium text-ink transition hover:bg-pearl"
+                onClick={() => void handleCreateSection()}
+                className="inline-flex items-center justify-center gap-2 rounded-full bg-ink px-5 py-3 text-sm font-medium text-white transition hover:bg-pine"
               >
-                Bekor qilish
+                <Plus size={16} />
+                Bo'lim qo'shish
               </button>
-            ) : null
+            </div>
           }
         >
-          <form className="grid gap-4" onSubmit={handlePackageSubmit}>
+          <div className="space-y-5">
+            {orderedSections.map((section, index) => {
+              const cards = readFeatureCards(section);
+              const places = readPlaces(section);
+
+              return (
+                <div key={section.id} className="rounded-[28px] border border-black/6 bg-gradient-to-br from-white to-pearl/70 p-5">
+                  <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+                    <div className="min-w-0">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span className="inline-flex items-center gap-2 rounded-full bg-white px-3 py-1 text-xs font-medium text-ink/70">
+                          <GripVertical size={12} />
+                          {getSectionTypeLabel(section.section_type)}
+                        </span>
+                        <span
+                          className={cn(
+                            "rounded-full px-3 py-1 text-xs font-medium",
+                            section.is_enabled ? "bg-emerald-100 text-emerald-700" : "bg-slate-100 text-slate-600",
+                          )}
+                        >
+                          {section.is_enabled ? "Yoqilgan" : "O'chirilgan"}
+                        </span>
+                      </div>
+                    </div>
+
+                    <div className="flex flex-wrap gap-2">
+                      <button
+                        type="button"
+                        onClick={() => void handleMoveSection(section.id, "up")}
+                        disabled={index === 0}
+                        className="inline-flex items-center gap-2 rounded-full border border-black/10 px-4 py-2 text-sm font-medium text-ink transition hover:bg-white disabled:cursor-not-allowed disabled:opacity-50"
+                      >
+                        <ArrowUp size={14} />
+                        Yuqoriga
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => void handleMoveSection(section.id, "down")}
+                        disabled={index === orderedSections.length - 1}
+                        className="inline-flex items-center gap-2 rounded-full border border-black/10 px-4 py-2 text-sm font-medium text-ink transition hover:bg-white disabled:cursor-not-allowed disabled:opacity-50"
+                      >
+                        <ArrowDown size={14} />
+                        Pastga
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() =>
+                          updateSectionState(section.id, (current) => ({
+                            ...current,
+                            is_enabled: !current.is_enabled,
+                          }))
+                        }
+                        className="inline-flex items-center gap-2 rounded-full border border-black/10 px-4 py-2 text-sm font-medium text-ink transition hover:bg-white"
+                      >
+                        {section.is_enabled ? "O'chirish" : "Yoqish"}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => void handleSaveSection(section)}
+                        className="inline-flex items-center gap-2 rounded-full bg-ink px-4 py-2 text-sm font-medium text-white transition hover:bg-pine"
+                      >
+                        <Save size={14} />
+                        Saqlash
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => void runAction(() => deleteHomeSection(section.id), "Bo'lim o'chirildi.")}
+                        className="inline-flex items-center gap-2 rounded-full border border-red-200 px-4 py-2 text-sm font-medium text-red-700 transition hover:bg-red-50"
+                      >
+                        <Trash2 size={14} />
+                        O'chirish
+                      </button>
+                    </div>
+                  </div>
+
+                  <div className="mt-5 grid gap-4 lg:grid-cols-2">
+                    <label className="space-y-2 text-sm text-ink/70">
+                      <span>Eyebrow</span>
+                      <input
+                        value={section.eyebrow}
+                        onChange={(event) =>
+                          updateSectionState(section.id, (current) => ({
+                            ...current,
+                            eyebrow: event.target.value,
+                          }))
+                        }
+                        className={inputClassName()}
+                      />
+                    </label>
+                    <label className="space-y-2 text-sm text-ink/70">
+                      <span>Sarlavha</span>
+                      <input
+                        value={section.title}
+                        onChange={(event) =>
+                          updateSectionState(section.id, (current) => ({
+                            ...current,
+                            title: event.target.value,
+                          }))
+                        }
+                        className={inputClassName()}
+                      />
+                    </label>
+                    <label className="space-y-2 text-sm text-ink/70 lg:col-span-2">
+                      <span>Tavsif</span>
+                      <textarea
+                        value={section.description}
+                        onChange={(event) =>
+                          updateSectionState(section.id, (current) => ({
+                            ...current,
+                            description: event.target.value,
+                          }))
+                        }
+                        className={textareaClassName()}
+                      />
+                    </label>
+                  </div>
+
+                  {section.section_type === "highlights" ? (
+                    <div className="mt-5 rounded-[24px] bg-white/80 p-4">
+                      <div className="flex items-center justify-between gap-3">
+                        <p className="text-sm font-medium text-ink">Highlight kartalari</p>
+                        <button
+                          type="button"
+                          onClick={() =>
+                            updateSectionState(section.id, (current) => ({
+                              ...current,
+                              content: {
+                                ...current.content,
+                                cards: [...readFeatureCards(current), createFeatureCard()],
+                              },
+                            }))
+                          }
+                          className="rounded-full border border-black/10 bg-white px-4 py-2 text-sm font-medium text-ink transition hover:bg-pearl"
+                        >
+                          Karta qo'shish
+                        </button>
+                      </div>
+
+                      <div className="mt-4 grid gap-4">
+                        {cards.map((card) => (
+                          <div key={card.id} className="grid gap-4 rounded-[20px] border border-black/8 bg-pearl/70 p-4 lg:grid-cols-[1fr_1fr_auto]">
+                            <input
+                              value={card.title}
+                              onChange={(event) =>
+                                updateSectionState(section.id, (current) => ({
+                                  ...current,
+                                  content: {
+                                    ...current.content,
+                                    cards: readFeatureCards(current).map((item) =>
+                                      item.id === card.id ? { ...item, title: event.target.value } : item,
+                                    ),
+                                  },
+                                }))
+                              }
+                              placeholder="Sarlavha"
+                              className={inputClassName()}
+                            />
+                            <input
+                              value={card.description}
+                              onChange={(event) =>
+                                updateSectionState(section.id, (current) => ({
+                                  ...current,
+                                  content: {
+                                    ...current.content,
+                                    cards: readFeatureCards(current).map((item) =>
+                                      item.id === card.id ? { ...item, description: event.target.value } : item,
+                                    ),
+                                  },
+                                }))
+                              }
+                              placeholder="Tavsif"
+                              className={inputClassName()}
+                            />
+                            <div className="flex gap-2">
+                              <select
+                                value={card.icon}
+                                onChange={(event) =>
+                                  updateSectionState(section.id, (current) => ({
+                                    ...current,
+                                    content: {
+                                      ...current.content,
+                                      cards: readFeatureCards(current).map((item) =>
+                                        item.id === card.id
+                                          ? { ...item, icon: event.target.value as HomeFeatureCard["icon"] }
+                                          : item,
+                                      ),
+                                    },
+                                  }))
+                                }
+                                className={inputClassName()}
+                              >
+                                <option value="sparkles">sparkles</option>
+                                <option value="trees">trees</option>
+                                <option value="message-circle">message-circle</option>
+                                <option value="map-pinned">map-pinned</option>
+                              </select>
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  updateSectionState(section.id, (current) => ({
+                                    ...current,
+                                    content: {
+                                      ...current.content,
+                                      cards: readFeatureCards(current).filter((item) => item.id !== card.id),
+                                    },
+                                  }))
+                                }
+                                className="inline-flex items-center justify-center rounded-full border border-red-200 px-3 py-2 text-red-700 transition hover:bg-red-50"
+                              >
+                                <Trash2 size={14} />
+                              </button>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  ) : null}
+
+                  {section.section_type === "sightseeing" ? (
+                    <div className="mt-5 rounded-[24px] bg-white/80 p-4">
+                      <div className="flex items-center justify-between gap-3">
+                        <p className="text-sm font-medium text-ink">Sightseeing joylari</p>
+                        <button
+                          type="button"
+                          onClick={() =>
+                            updateSectionState(section.id, (current) => ({
+                              ...current,
+                              content: {
+                                ...current.content,
+                                places: [...readPlaces(current), createSightseeingPlace()],
+                              },
+                            }))
+                          }
+                          className="rounded-full border border-black/10 bg-white px-4 py-2 text-sm font-medium text-ink transition hover:bg-pearl"
+                        >
+                          Joy qo'shish
+                        </button>
+                      </div>
+
+                      <div className="mt-4 grid gap-4">
+                        {places.map((place) => (
+                          <div key={place.id} className="grid gap-4 rounded-[20px] border border-black/8 bg-pearl/70 p-4 lg:grid-cols-[1fr_1.3fr_auto]">
+                            <input
+                              value={place.name}
+                              onChange={(event) =>
+                                updateSectionState(section.id, (current) => ({
+                                  ...current,
+                                  content: {
+                                    ...current.content,
+                                    places: readPlaces(current).map((item) =>
+                                      item.id === place.id ? { ...item, name: event.target.value } : item,
+                                    ),
+                                  },
+                                }))
+                              }
+                              placeholder="Joy nomi"
+                              className={inputClassName()}
+                            />
+                            <input
+                              value={place.description}
+                              onChange={(event) =>
+                                updateSectionState(section.id, (current) => ({
+                                  ...current,
+                                  content: {
+                                    ...current.content,
+                                    places: readPlaces(current).map((item) =>
+                                      item.id === place.id ? { ...item, description: event.target.value } : item,
+                                    ),
+                                  },
+                                }))
+                              }
+                              placeholder="Qisqa tavsif"
+                              className={inputClassName()}
+                            />
+                            <button
+                              type="button"
+                              onClick={() =>
+                                updateSectionState(section.id, (current) => ({
+                                  ...current,
+                                  content: {
+                                    ...current.content,
+                                    places: readPlaces(current).filter((item) => item.id !== place.id),
+                                  },
+                                }))
+                              }
+                              className="inline-flex items-center justify-center rounded-full border border-red-200 px-3 py-2 text-red-700 transition hover:bg-red-50"
+                            >
+                              <Trash2 size={14} />
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  ) : null}
+                </div>
+              );
+            })}
+
+            {orderedSections.length === 0 ? (
+              <div className="rounded-[28px] border border-dashed border-black/10 bg-pearl/60 p-8 text-sm text-ink/55">
+                Hozircha homepage bo'limlari mavjud emas.
+              </div>
+            ) : null}
+          </div>
+        </SectionCard>
+
+        <SectionCard
+          title="Yuklangan media"
+          description="Media fayllarni kategoriyalar bo'yicha ko'ring va kerak bo'lsa o'chiring."
+        >
+          <div className="space-y-6">
+            {[
+              { title: "Hero media", items: heroMedia },
+              { title: "Gallery media", items: galleryMedia },
+              { title: "Package media", items: packageMedia },
+            ].map((group) => (
+              <div key={group.title}>
+                <p className="mb-3 text-sm font-medium text-ink">{group.title}</p>
+                <div className="grid gap-4 sm:grid-cols-2">
+                  {group.items.map((item) => (
+                    <div key={item.id} className="overflow-hidden rounded-[28px] border border-black/5 bg-pearl">
+                      {isVideoUrl(item.url) ? (
+                        <video src={item.url} controls className="h-44 w-full object-cover" />
+                      ) : (
+                        <img src={item.url} alt={group.title} className="h-44 w-full object-cover" />
+                      )}
+                      <div className="flex items-center justify-between gap-3 p-4">
+                        <div className="min-w-0">
+                          <p className="truncate text-sm font-medium text-ink">{item.id}</p>
+                          {item.package_id ? (
+                            <p className="mt-1 text-xs text-ink/45">Paket ID: {item.package_id}</p>
+                          ) : null}
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => void handleDeleteMedia(item)}
+                          className="inline-flex items-center gap-2 rounded-full border border-red-200 px-4 py-2 text-sm font-medium text-red-700 transition hover:bg-red-50"
+                        >
+                          <Trash2 size={14} />
+                          O'chirish
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                  {group.items.length === 0 ? (
+                    <div className="rounded-[28px] border border-dashed border-black/10 bg-pearl/60 p-8 text-sm text-ink/55 sm:col-span-2">
+                      Hozircha media yo'q.
+                    </div>
+                  ) : null}
+                </div>
+              </div>
+            ))}
+          </div>
+        </SectionCard>
+      </div>
+
+      <div className="mt-6 grid gap-6 xl:grid-cols-[1.04fr_0.96fr]">
+        <SectionCard
+          title={editingPackageId ? "Paketni tahrirlash" : "Paket yaratish"}
+          description="Yangi paketlar va ularning narxlarini boshqaring."
+        >
+          <form className="grid gap-4 lg:grid-cols-2" onSubmit={handlePackageSubmit}>
             <label className="space-y-2 text-sm text-ink/70">
               <span>Nomi</span>
               <input
@@ -707,89 +1466,87 @@ export function AdminPage() {
             </label>
 
             <label className="space-y-2 text-sm text-ink/70">
-              <span>Qisqa tavsif</span>
+              <span>Turi</span>
+              <select
+                value={packageForm.type}
+                onChange={(event) =>
+                  setPackageForm((current) => ({
+                    ...current,
+                    type: event.target.value as PackageRecord["type"],
+                  }))
+                }
+                className={inputClassName()}
+              >
+                <option value="stay">Tunab qolish</option>
+                <option value="day">Kunlik dam olish</option>
+              </select>
+            </label>
+
+            <label className="space-y-2 text-sm text-ink/70 lg:col-span-2">
+              <span>Tavsif</span>
               <textarea
                 required
-                rows={4}
                 value={packageForm.description}
                 onChange={(event) =>
-                  setPackageForm((current) => ({ ...current, description: event.target.value }))
+                  setPackageForm((current) => ({
+                    ...current,
+                    description: event.target.value,
+                  }))
+                }
+                className={textareaClassName()}
+              />
+            </label>
+
+            <label className="space-y-2 text-sm text-ink/70">
+              <span>Asosiy narx</span>
+              <input
+                required
+                type="number"
+                min={0}
+                value={packageForm.base_price}
+                onChange={(event) =>
+                  setPackageForm((current) => ({
+                    ...current,
+                    base_price: Number(event.target.value),
+                  }))
                 }
                 className={inputClassName()}
               />
             </label>
 
-            <div className="grid gap-4 sm:grid-cols-2">
-              <label className="space-y-2 text-sm text-ink/70">
-                <span>Turi</span>
-                <select
-                  value={packageForm.type}
-                  onChange={(event) =>
-                    setPackageForm((current) => ({
-                      ...current,
-                      type: event.target.value as PackageRecord["type"],
-                    }))
-                  }
-                  className={inputClassName()}
-                >
-                  <option value="stay">Tunab qolish</option>
-                  <option value="day">Kunlik dam olish</option>
-                </select>
-              </label>
+            <label className="space-y-2 text-sm text-ink/70">
+              <span>Har mehmon uchun</span>
+              <input
+                required
+                type="number"
+                min={0}
+                value={packageForm.price_per_guest}
+                onChange={(event) =>
+                  setPackageForm((current) => ({
+                    ...current,
+                    price_per_guest: Number(event.target.value),
+                  }))
+                }
+                className={inputClassName()}
+              />
+            </label>
 
-              <label className="space-y-2 text-sm text-ink/70">
-                <span>Maksimal mehmon</span>
-                <input
-                  type="number"
-                  min={1}
-                  required
-                  value={packageForm.max_guests}
-                  onChange={(event) =>
-                    setPackageForm((current) => ({
-                      ...current,
-                      max_guests: Number(event.target.value),
-                    }))
-                  }
-                  className={inputClassName()}
-                />
-              </label>
-            </div>
-
-            <div className="grid gap-4 sm:grid-cols-2">
-              <label className="space-y-2 text-sm text-ink/70">
-                <span>Asosiy narx</span>
-                <input
-                  type="number"
-                  min={0}
-                  required
-                  value={packageForm.base_price}
-                  onChange={(event) =>
-                    setPackageForm((current) => ({
-                      ...current,
-                      base_price: Number(event.target.value),
-                    }))
-                  }
-                  className={inputClassName()}
-                />
-              </label>
-
-              <label className="space-y-2 text-sm text-ink/70">
-                <span>Mehmon narxi</span>
-                <input
-                  type="number"
-                  min={0}
-                  required
-                  value={packageForm.price_per_guest}
-                  onChange={(event) =>
-                    setPackageForm((current) => ({
-                      ...current,
-                      price_per_guest: Number(event.target.value),
-                    }))
-                  }
-                  className={inputClassName()}
-                />
-              </label>
-            </div>
+            <label className="space-y-2 text-sm text-ink/70">
+              <span>Maksimal sig'im</span>
+              <input
+                required
+                type="number"
+                min={1}
+                value={packageForm.max_guests}
+                onChange={(event) =>
+                  setPackageForm((current) => ({
+                    ...current,
+                    max_guests: Number(event.target.value),
+                  }))
+                }
+                className={inputClassName()}
+              />
+            </label>
 
             <label className="space-y-2 text-sm text-ink/70">
               <span>Paket rasmi</span>
@@ -799,32 +1556,42 @@ export function AdminPage() {
                 onChange={(event) => setPackageImageFile(event.target.files?.[0] ?? null)}
                 className={inputClassName()}
               />
-              <p className="text-xs leading-5 text-ink/45">
-                Rasm tanlansa, u `package-images` storage bucket ichiga yuklanadi.
-              </p>
             </label>
 
-            <button
-              type="submit"
-              disabled={working}
-              className="inline-flex items-center justify-center gap-2 rounded-full bg-ink px-5 py-3 text-sm font-medium text-white transition hover:bg-pine disabled:cursor-not-allowed disabled:bg-ink/60"
-            >
-              {working ? <LoaderCircle className="animate-spin" size={16} /> : null}
-              {editingPackageId ? "O'zgarishlarni saqlash" : "Paket yaratish"}
-            </button>
+            <div className="flex flex-wrap gap-3 lg:col-span-2">
+              <button
+                type="submit"
+                disabled={working}
+                className="inline-flex items-center justify-center gap-2 rounded-full bg-ink px-5 py-3 text-sm font-medium text-white transition hover:bg-pine disabled:cursor-not-allowed disabled:bg-ink/60"
+              >
+                {working ? <LoaderCircle className="animate-spin" size={16} /> : null}
+                {editingPackageId ? "O'zgarishlarni saqlash" : "Paket yaratish"}
+              </button>
+              {editingPackageId ? (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setEditingPackageId(null);
+                    setPackageForm(emptyPackage);
+                    setPackageImageFile(null);
+                  }}
+                  className="inline-flex items-center justify-center gap-2 rounded-full border border-black/10 px-5 py-3 text-sm font-medium text-ink transition hover:bg-pearl"
+                >
+                  <X size={16} />
+                  Bekor qilish
+                </button>
+              ) : null}
+            </div>
           </form>
         </SectionCard>
 
         <SectionCard
           title="Paketlar ro'yxati"
-          description="Mavjud paketlarni tez ko'ring, tahrirlang yoki o'chiring."
+          description="Paketlarni tahrirlang yoki o'chiring."
         >
           <div className="grid gap-4">
             {packages.map((item) => (
-              <div
-                key={item.id}
-                className="rounded-[28px] border border-black/6 bg-gradient-to-br from-white to-pearl/70 p-5"
-              >
+              <div key={item.id} className="rounded-[28px] border border-black/6 bg-gradient-to-br from-white to-pearl/70 p-5">
                 <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
                   <div className="min-w-0">
                     <div className="flex flex-wrap items-center gap-2">
@@ -905,10 +1672,7 @@ export function AdminPage() {
         >
           <div className="grid gap-4">
             {bookings.map((booking) => (
-              <div
-                key={booking.id}
-                className="rounded-[28px] border border-black/6 bg-gradient-to-br from-white to-pearl/70 p-5"
-              >
+              <div key={booking.id} className="rounded-[28px] border border-black/6 bg-gradient-to-br from-white to-pearl/70 p-5">
                 <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
                   <div className="min-w-0">
                     <div className="flex flex-wrap items-center gap-2">
@@ -936,9 +1700,7 @@ export function AdminPage() {
                       </div>
                       <div className="rounded-2xl bg-white/85 p-4">
                         <p className="text-xs uppercase tracking-[0.2em] text-ink/40">Narx</p>
-                        <p className="mt-2 text-sm font-medium text-ink">
-                          {formatCurrency(booking.estimated_price)}
-                        </p>
+                        <p className="mt-2 text-sm font-medium text-ink">{formatCurrency(booking.estimated_price)}</p>
                       </div>
                       <div className="rounded-2xl bg-white/85 p-4">
                         <p className="text-xs uppercase tracking-[0.2em] text-ink/40">Mehmonlar</p>
@@ -995,7 +1757,7 @@ export function AdminPage() {
 
         <SectionCard
           title="Tezkor ko'rinish"
-          description="So'nggi bronlar va joriy media taqsimotini tez ko'rish uchun qisqa ko'rsatkichlar."
+          description="So'nggi bronlar va media taqsimotini qisqacha ko'rsatadi."
         >
           <div className="grid gap-4">
             <div className="rounded-[28px] bg-gradient-to-br from-[#09111f] to-[#12284c] p-5 text-white">
@@ -1032,167 +1794,6 @@ export function AdminPage() {
               <div className="rounded-[28px] border border-black/6 bg-pearl/70 p-5">
                 <p className="text-xs uppercase tracking-[0.24em] text-ink/35">Paket rasmlari</p>
                 <p className="mt-3 text-3xl font-semibold text-ink">{packageMedia.length}</p>
-              </div>
-            </div>
-          </div>
-        </SectionCard>
-      </div>
-
-      <div className="mt-6 grid gap-6 xl:grid-cols-[0.92fr_1.08fr]">
-        <SectionCard
-          title="Media yuklash"
-          description="Hero, galereya va paket rasmlarini alohida yuklab, sayt ko'rinishini boshqaring."
-        >
-          <form className="space-y-4 rounded-[28px] bg-pearl p-5" onSubmit={handleMediaUpload}>
-            <h3 className="text-lg font-semibold text-ink">Hero va galereya</h3>
-            <label className="space-y-2 text-sm text-ink/70">
-              <span>Bo'lim</span>
-              <select
-                value={mediaForm.kind}
-                onChange={(event) =>
-                  setMediaForm((current) => ({
-                    ...current,
-                    kind: event.target.value as Exclude<MediaKind, "package">,
-                  }))
-                }
-                className={inputClassName()}
-              >
-                <option value="hero">Hero rasmlari</option>
-                <option value="gallery">Galereya</option>
-              </select>
-            </label>
-            <label className="space-y-2 text-sm text-ink/70">
-              <span>Fayl</span>
-              <input
-                required
-                type="file"
-                accept="image/*,video/*"
-                onChange={(event) =>
-                  setMediaForm((current) => ({
-                    ...current,
-                    file: event.target.files?.[0] ?? null,
-                  }))
-                }
-                className={inputClassName()}
-              />
-            </label>
-            <button
-              type="submit"
-              disabled={working}
-              className="inline-flex items-center justify-center gap-2 rounded-full bg-ink px-5 py-3 text-sm font-medium text-white transition hover:bg-pine disabled:cursor-not-allowed disabled:bg-ink/60"
-            >
-              {working ? <LoaderCircle className="animate-spin" size={16} /> : <Upload size={16} />}
-              Yuklash
-            </button>
-          </form>
-
-          <form className="mt-6 space-y-4 rounded-[28px] bg-pearl p-5" onSubmit={handlePackageImageUpload}>
-            <h3 className="text-lg font-semibold text-ink">Paket rasmlari</h3>
-            <label className="space-y-2 text-sm text-ink/70">
-              <span>Paket</span>
-              <select
-                value={packageImageForm.packageId}
-                onChange={(event) =>
-                  setPackageImageForm((current) => ({
-                    ...current,
-                    packageId: event.target.value,
-                  }))
-                }
-                className={inputClassName()}
-              >
-                <option value="">Paketni tanlang</option>
-                {packages.map((item) => (
-                  <option key={item.id} value={item.id}>
-                    {item.name}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label className="space-y-2 text-sm text-ink/70">
-              <span>Rasm fayli</span>
-              <input
-                required
-                type="file"
-                accept="image/*"
-                onChange={(event) =>
-                  setPackageImageForm((current) => ({
-                    ...current,
-                    file: event.target.files?.[0] ?? null,
-                  }))
-                }
-                className={inputClassName()}
-              />
-            </label>
-            <button
-              type="submit"
-              disabled={working}
-              className="inline-flex items-center justify-center gap-2 rounded-full bg-ink px-5 py-3 text-sm font-medium text-white transition hover:bg-pine disabled:cursor-not-allowed disabled:bg-ink/60"
-            >
-              {working ? <LoaderCircle className="animate-spin" size={16} /> : <Upload size={16} />}
-              Paket rasmini yuklash
-            </button>
-          </form>
-        </SectionCard>
-
-        <SectionCard
-          title="Yuklangan media"
-          description="Yuklangan fayllarni bo'limlar bo'yicha ko'ring va vizual holatni tekshirib boring."
-        >
-          <div className="space-y-6">
-            <div>
-              <p className="mb-3 text-sm font-medium text-ink">Hero rasmlari</p>
-              <div className="grid gap-4 sm:grid-cols-2">
-                {heroMedia.map((item) => (
-                  <div key={item.id} className="overflow-hidden rounded-[28px] border border-black/5 bg-pearl">
-                    {isVideoUrl(item.url) ? (
-                      <video src={item.url} controls className="h-44 w-full object-cover" />
-                    ) : (
-                      <img src={item.url} alt="Hero media" className="h-44 w-full object-cover" />
-                    )}
-                  </div>
-                ))}
-                {heroMedia.length === 0 ? (
-                  <div className="rounded-[28px] border border-dashed border-black/10 bg-pearl/60 p-8 text-sm text-ink/55">
-                    Hero media hali yuklanmagan.
-                  </div>
-                ) : null}
-              </div>
-            </div>
-
-            <div>
-              <p className="mb-3 text-sm font-medium text-ink">Galereya</p>
-              <div className="grid gap-4 sm:grid-cols-2">
-                {galleryMedia.map((item) => (
-                  <div key={item.id} className="overflow-hidden rounded-[28px] border border-black/5 bg-pearl">
-                    {isVideoUrl(item.url) ? (
-                      <video src={item.url} controls className="h-44 w-full object-cover" />
-                    ) : (
-                      <img src={item.url} alt="Galereya media" className="h-44 w-full object-cover" />
-                    )}
-                  </div>
-                ))}
-                {galleryMedia.length === 0 ? (
-                  <div className="rounded-[28px] border border-dashed border-black/10 bg-pearl/60 p-8 text-sm text-ink/55">
-                    Galereya media hali yuklanmagan.
-                  </div>
-                ) : null}
-              </div>
-            </div>
-
-            <div>
-              <p className="mb-3 text-sm font-medium text-ink">Paket rasmlari</p>
-              <div className="grid gap-4 sm:grid-cols-2">
-                {packageMedia.map((item) => (
-                  <div key={item.id} className="overflow-hidden rounded-[28px] border border-black/5 bg-pearl">
-                    <img src={item.url} alt="Paket rasmi" className="h-44 w-full object-cover" />
-                    <div className="p-4 text-xs text-ink/55">Paket ID: {item.package_id ?? "Biriktirilmagan"}</div>
-                  </div>
-                ))}
-                {packageMedia.length === 0 ? (
-                  <div className="rounded-[28px] border border-dashed border-black/10 bg-pearl/60 p-8 text-sm text-ink/55">
-                    Paket rasmlari hali yuklanmagan.
-                  </div>
-                ) : null}
               </div>
             </div>
           </div>

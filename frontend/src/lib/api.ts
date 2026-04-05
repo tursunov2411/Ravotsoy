@@ -1,14 +1,18 @@
 import type { Session } from "@supabase/supabase-js";
-import { mockBookings, mockGallery, mockPackages, mockSiteSettings } from "./mockData";
+import { mockBookings, mockGallery, mockHomeSections, mockPackages, mockSiteSettings } from "./mockData";
 import { hasSupabaseConfig, supabase } from "./supabase";
 import type {
   BookingRecord,
   BookingStatus,
+  ContentSection,
+  ContentSectionType,
+  HomeFeatureCard,
   MediaAsset,
   MediaKind,
   PublicContact,
   PackageInput,
   PackageRecord,
+  SightseeingPlace,
   SiteSettings,
 } from "./types";
 
@@ -49,6 +53,98 @@ function parseContactPeople(value: unknown): PublicContact[] {
       } satisfies PublicContact;
     })
     .filter((item): item is PublicContact => Boolean(item));
+}
+
+function parseFeatureCards(value: unknown): HomeFeatureCard[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  return value
+    .map((item) => {
+      const record = item as Record<string, unknown>;
+      const title = String(record.title ?? "").trim();
+      const description = String(record.description ?? "").trim();
+      const icon = String(record.icon ?? "sparkles") as HomeFeatureCard["icon"];
+
+      if (!title && !description) {
+        return null;
+      }
+
+      return {
+        id: String(record.id ?? crypto.randomUUID()),
+        title,
+        description,
+        icon:
+          icon === "trees" || icon === "sparkles" || icon === "message-circle" || icon === "map-pinned"
+            ? icon
+            : "sparkles",
+      } satisfies HomeFeatureCard;
+    })
+    .filter((item): item is HomeFeatureCard => Boolean(item));
+}
+
+function parseSightseeingPlaces(value: unknown): SightseeingPlace[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  return value
+    .map((item) => {
+      const record = item as Record<string, unknown>;
+      const name = String(record.name ?? "").trim();
+      const description = String(record.description ?? "").trim();
+
+      if (!name && !description) {
+        return null;
+      }
+
+      return {
+        id: String(record.id ?? crypto.randomUUID()),
+        name,
+        description,
+      } satisfies SightseeingPlace;
+    })
+    .filter((item): item is SightseeingPlace => Boolean(item));
+}
+
+function parseHeroImages(value: unknown): string[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  return value.map((item) => String(item ?? "").trim()).filter(Boolean);
+}
+
+function parseSectionType(value: unknown): ContentSectionType {
+  const type = String(value ?? "");
+
+  if (
+    type === "about" ||
+    type === "highlights" ||
+    type === "packages" ||
+    type === "gallery" ||
+    type === "sightseeing" ||
+    type === "contacts"
+  ) {
+    return type;
+  }
+
+  return "about";
+}
+
+function parseContentSection(item: Record<string, unknown>): ContentSection {
+  return {
+    id: String(item.id),
+    page: "home",
+    section_type: parseSectionType(item.section_type),
+    eyebrow: String(item.eyebrow ?? ""),
+    title: String(item.title ?? ""),
+    description: String(item.description ?? ""),
+    content: (item.content as Record<string, unknown> | null) ?? {},
+    sort_order: Number(item.sort_order ?? 0),
+    is_enabled: Boolean(item.is_enabled),
+  };
 }
 
 export async function getPackages() {
@@ -144,7 +240,7 @@ export async function getMediaAssets() {
   const client = ensureSupabase();
   const { data, error } = await client
     .from("media")
-    .select("id, type, url, package_id")
+    .select("id, type, url, package_id, storage_path")
     .order("created_at", { ascending: false });
 
   if (error) {
@@ -156,6 +252,7 @@ export async function getMediaAssets() {
     type: item.type,
     url: item.url,
     package_id: item.package_id,
+    storage_path: item.storage_path ?? null,
   }));
 }
 
@@ -167,9 +264,7 @@ export async function getSiteSettings() {
   const client = ensureSupabase();
   const { data, error } = await client
     .from("site_settings")
-    .select(
-      "id, location_label, location_url, maps_embed_url, contacts_button_label, contacts_button_url, contact_people",
-    )
+    .select("id, hotel_name, description, location_url, about_text, hero_images, contact_people")
     .eq("id", 1)
     .maybeSingle();
 
@@ -183,11 +278,11 @@ export async function getSiteSettings() {
 
   return {
     id: Number(data.id),
-    location_label: String(data.location_label ?? ""),
+    hotel_name: data.hotel_name ? String(data.hotel_name) : "",
     location_url: String(data.location_url ?? ""),
-    maps_embed_url: data.maps_embed_url ? String(data.maps_embed_url) : "",
-    contacts_button_label: data.contacts_button_label ? String(data.contacts_button_label) : "",
-    contacts_button_url: data.contacts_button_url ? String(data.contacts_button_url) : "",
+    description: data.description ? String(data.description) : "",
+    about_text: data.about_text ? String(data.about_text) : "",
+    hero_images: parseHeroImages(data.hero_images),
     contact_people: parseContactPeople(data.contact_people),
   } satisfies SiteSettings;
 }
@@ -206,18 +301,16 @@ export async function upsertSiteSettings(payload: Omit<SiteSettings, "id">) {
     .upsert(
       {
         id: 1,
-        location_label: payload.location_label,
+        hotel_name: payload.hotel_name || null,
         location_url: payload.location_url,
-        maps_embed_url: payload.maps_embed_url || null,
-        contacts_button_label: payload.contacts_button_label || null,
-        contacts_button_url: payload.contacts_button_url || null,
+        description: payload.description || null,
+        about_text: payload.about_text || null,
+        hero_images: payload.hero_images ?? [],
         contact_people: payload.contact_people ?? [],
       },
       { onConflict: "id" },
     )
-    .select(
-      "id, location_label, location_url, maps_embed_url, contacts_button_label, contacts_button_url, contact_people",
-    )
+    .select("id, hotel_name, description, location_url, about_text, hero_images, contact_people")
     .single();
 
   if (error) {
@@ -226,11 +319,11 @@ export async function upsertSiteSettings(payload: Omit<SiteSettings, "id">) {
 
   return {
     id: Number(data.id),
-    location_label: String(data.location_label ?? ""),
+    hotel_name: data.hotel_name ? String(data.hotel_name) : "",
     location_url: String(data.location_url ?? ""),
-    maps_embed_url: data.maps_embed_url ? String(data.maps_embed_url) : "",
-    contacts_button_label: data.contacts_button_label ? String(data.contacts_button_label) : "",
-    contacts_button_url: data.contacts_button_url ? String(data.contacts_button_url) : "",
+    description: data.description ? String(data.description) : "",
+    about_text: data.about_text ? String(data.about_text) : "",
+    hero_images: parseHeroImages(data.hero_images),
     contact_people: parseContactPeople(data.contact_people),
   } satisfies SiteSettings;
 }
@@ -412,6 +505,7 @@ export async function uploadMediaAsset(file: File, type: MediaKind, packageId?: 
     type,
     url: publicUrlData.publicUrl,
     package_id: packageId ?? null,
+    storage_path: path,
   });
 
   if (insertError) {
@@ -421,4 +515,84 @@ export async function uploadMediaAsset(file: File, type: MediaKind, packageId?: 
 
 export async function uploadPackageImage(file: File, packageId: string) {
   await uploadMediaAsset(file, "package", packageId);
+}
+
+export async function deleteMediaAsset(asset: MediaAsset) {
+  if (!hasSupabaseConfig) {
+    return;
+  }
+
+  const client = ensureSupabase();
+  const bucket = asset.type === "package" ? packageImagesBucket : defaultMediaBucket;
+
+  if (asset.storage_path) {
+    const { error: storageError } = await client.storage.from(bucket).remove([asset.storage_path]);
+
+    if (storageError) {
+      console.error(storageError);
+    }
+  }
+
+  const { error } = await client.from("media").delete().eq("id", asset.id);
+
+  if (error) {
+    throw error;
+  }
+}
+
+export async function getHomeSections() {
+  if (!hasSupabaseConfig) {
+    return mockHomeSections;
+  }
+
+  const client = ensureSupabase();
+  const { data, error } = await client
+    .from("content_sections")
+    .select("id, page, section_type, eyebrow, title, description, content, sort_order, is_enabled")
+    .eq("page", "home")
+    .order("sort_order", { ascending: true });
+
+  if (error) {
+    throw error;
+  }
+
+  return (data as Array<Record<string, unknown>>).map(parseContentSection);
+}
+
+export async function upsertHomeSection(
+  section: Omit<ContentSection, "id" | "page"> & { id?: string | null },
+) {
+  const client = ensureSupabase();
+  const payload = {
+    id: section.id ?? undefined,
+    page: "home",
+    section_type: section.section_type,
+    eyebrow: section.eyebrow,
+    title: section.title,
+    description: section.description,
+    content: section.content,
+    sort_order: section.sort_order,
+    is_enabled: section.is_enabled,
+  };
+
+  const query = section.id
+    ? client.from("content_sections").update(payload).eq("id", section.id).select().single()
+    : client.from("content_sections").insert(payload).select().single();
+
+  const { data, error } = await query;
+
+  if (error) {
+    throw error;
+  }
+
+  return parseContentSection(data as Record<string, unknown>);
+}
+
+export async function deleteHomeSection(id: string) {
+  const client = ensureSupabase();
+  const { error } = await client.from("content_sections").delete().eq("id", id);
+
+  if (error) {
+    throw error;
+  }
 }

@@ -3,7 +3,7 @@ import { Menu, MessageCircleMore, Phone, X } from "lucide-react";
 import { useEffect, useState } from "react";
 import { NavLink, Outlet } from "react-router-dom";
 import { getSiteSettings } from "../lib/api";
-import type { PublicContact } from "../lib/types";
+import type { PublicContact, SiteSettings } from "../lib/types";
 import { getPhoneLink, getTelegramLink } from "../lib/utils";
 
 const navigation = [
@@ -20,8 +20,20 @@ function navClass(isActive: boolean) {
 
 export function Layout() {
   const [open, setOpen] = useState(false);
+  const [siteSettings, setSiteSettings] = useState<SiteSettings | null>(null);
   const [contacts, setContacts] = useState<PublicContact[]>([]);
-  const telegramLink = getTelegramLink("Salom, Ravotsoy Dam olish Maskani haqida ma'lumot olmoqchiman.");
+  const hotelName = siteSettings?.hotel_name?.trim() || "Ravotsoy Dam Olish Maskani";
+  const hotelDescription =
+    siteSettings?.description?.trim() ||
+    "Tabiat bag'rida dam olish, bron va paket ma'lumotlari shu yerda boshqariladi.";
+  const brandMark = hotelName
+    .split(" ")
+    .slice(0, 2)
+    .map((part) => part.charAt(0))
+    .join("")
+    .slice(0, 2)
+    .toUpperCase();
+  const telegramLink = getTelegramLink(`Salom, ${hotelName} haqida ma'lumot olmoqchiman.`);
   const primaryContact = contacts.find((item) => item.phone.trim()) ?? null;
   const primaryPhoneLink = primaryContact ? getPhoneLink(primaryContact.phone) : "";
 
@@ -29,6 +41,7 @@ export function Layout() {
     const loadSettings = async () => {
       try {
         const settings = await getSiteSettings();
+        setSiteSettings(settings);
         setContacts(settings.contact_people ?? []);
       } catch (error) {
         console.error(error);
@@ -44,11 +57,11 @@ export function Layout() {
         <div className="mx-auto flex max-w-7xl items-center justify-between px-4 py-4 sm:px-6 lg:px-8">
           <NavLink to="/" className="flex items-center gap-3">
             <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-[linear-gradient(135deg,var(--secondary),var(--accent))] text-sm font-semibold text-white shadow-soft">
-              RD
+              {brandMark || "RD"}
             </div>
             <div>
-              <p className="text-xs uppercase tracking-[0.35em] text-ink/40">Ravotsoy</p>
-              <p className="text-sm font-semibold">Dam olish maskani</p>
+              <p className="text-xs uppercase tracking-[0.35em] text-ink/40">Dam olish maskani</p>
+              <p className="text-sm font-semibold">{hotelName}</p>
             </div>
           </NavLink>
 
@@ -139,9 +152,9 @@ export function Layout() {
       <footer className="border-t border-black/5 bg-white/72 backdrop-blur-xl">
         <div className="mx-auto grid max-w-7xl gap-6 px-4 py-8 text-sm text-ink/60 sm:px-6 lg:grid-cols-[1fr_auto] lg:items-center lg:px-8">
           <div>
-            <p className="text-base font-semibold text-ink">Ravotsoy Dam Olish Maskani</p>
+            <p className="text-base font-semibold text-ink">{hotelName}</p>
             <p className="mt-2 max-w-2xl leading-7">
-              Tabiat bag'rida sokin hordiq, oilaviy dam olish va tezkor bron uchun zamonaviy maskan.
+              {hotelDescription}
             </p>
           </div>
           <div className="flex flex-col gap-3 sm:flex-row">
