@@ -390,47 +390,73 @@ export async function upsertSiteSettings(payload: Omit<SiteSettings, "id">) {
   }
 
   const client = ensureSupabase();
-  const { data, error } = await client
+  const settingsPayload = {
+    id: 1,
+    hotel_name: payload.hotel_name || null,
+    location_url: payload.location_url,
+    description: payload.description || null,
+    about_text: payload.about_text || null,
+    hero_images: payload.hero_images ?? [],
+    contact_people: payload.contact_people ?? [],
+    payment_card_number: payload.payment_card_number || null,
+    payment_card_holder: payload.payment_card_holder || null,
+    payment_instructions: payload.payment_instructions || null,
+    payment_manager_telegram: payload.payment_manager_telegram || null,
+    payment_deposit_ratio: payload.payment_deposit_ratio ?? 0.3,
+  };
+
+  let data: Record<string, unknown> | null = null;
+  let error: Error | null = null;
+
+  const updateResult = await client
     .from("site_settings")
-    .upsert(
-      {
-        id: 1,
-        hotel_name: payload.hotel_name || null,
-        location_url: payload.location_url,
-        description: payload.description || null,
-        about_text: payload.about_text || null,
-        hero_images: payload.hero_images ?? [],
-        contact_people: payload.contact_people ?? [],
-        payment_card_number: payload.payment_card_number || null,
-        payment_card_holder: payload.payment_card_holder || null,
-        payment_instructions: payload.payment_instructions || null,
-        payment_manager_telegram: payload.payment_manager_telegram || null,
-        payment_deposit_ratio: payload.payment_deposit_ratio ?? 0.3,
-      },
-      { onConflict: "id" },
-    )
+    .update(settingsPayload)
+    .eq("id", 1)
     .select(
       "id, hotel_name, description, location_url, about_text, hero_images, contact_people, payment_card_number, payment_card_holder, payment_instructions, payment_manager_telegram, payment_deposit_ratio",
     )
-    .single();
+    .maybeSingle();
+
+  if (updateResult.error) {
+    error = updateResult.error as Error;
+  } else if (updateResult.data) {
+    data = updateResult.data as Record<string, unknown>;
+  } else {
+    const insertResult = await client
+      .from("site_settings")
+      .insert(settingsPayload)
+      .select(
+        "id, hotel_name, description, location_url, about_text, hero_images, contact_people, payment_card_number, payment_card_holder, payment_instructions, payment_manager_telegram, payment_deposit_ratio",
+      )
+      .single();
+
+    error = insertResult.error as Error | null;
+    data = (insertResult.data as Record<string, unknown> | null) ?? null;
+  }
 
   if (error) {
     throw error;
   }
 
+  if (!data) {
+    throw new Error("Sayt sozlamalarini saqlab bo'lmadi.");
+  }
+
+  const savedData = data;
+
   return {
-    id: Number(data.id),
-    hotel_name: data.hotel_name ? String(data.hotel_name) : "",
-    location_url: String(data.location_url ?? ""),
-    description: data.description ? String(data.description) : "",
-    about_text: data.about_text ? String(data.about_text) : "",
-    hero_images: parseHeroImages(data.hero_images),
-    contact_people: parseContactPeople(data.contact_people),
-    payment_card_number: data.payment_card_number ? String(data.payment_card_number) : "",
-    payment_card_holder: data.payment_card_holder ? String(data.payment_card_holder) : "",
-    payment_instructions: data.payment_instructions ? String(data.payment_instructions) : "",
-    payment_manager_telegram: data.payment_manager_telegram ? String(data.payment_manager_telegram) : "",
-    payment_deposit_ratio: Number(data.payment_deposit_ratio ?? 0.3),
+    id: Number(savedData.id),
+    hotel_name: savedData.hotel_name ? String(savedData.hotel_name) : "",
+    location_url: String(savedData.location_url ?? ""),
+    description: savedData.description ? String(savedData.description) : "",
+    about_text: savedData.about_text ? String(savedData.about_text) : "",
+    hero_images: parseHeroImages(savedData.hero_images),
+    contact_people: parseContactPeople(savedData.contact_people),
+    payment_card_number: savedData.payment_card_number ? String(savedData.payment_card_number) : "",
+    payment_card_holder: savedData.payment_card_holder ? String(savedData.payment_card_holder) : "",
+    payment_instructions: savedData.payment_instructions ? String(savedData.payment_instructions) : "",
+    payment_manager_telegram: savedData.payment_manager_telegram ? String(savedData.payment_manager_telegram) : "",
+    payment_deposit_ratio: Number(savedData.payment_deposit_ratio ?? 0.3),
   } satisfies SiteSettings;
 }
 
@@ -488,6 +514,10 @@ export async function upsertPricingRule(payload: PricingRuleRecord) {
 
   if (error) {
     throw error;
+  }
+
+  if (!data) {
+    throw new Error("Sayt sozlamalarini saqlab bo'lmadi.");
   }
 
   return {
@@ -750,6 +780,24 @@ export async function getAdminBookings() {
 
 export async function updateBookingStatus(id: string, status: BookingStatus) {
   if (!hasSupabaseConfig) {
+    return;
+  }
+
+  if (status === "confirmed" || status === "rejected") {
+    const endpoint = status === "confirmed" ? "approve" : "reject";
+    const response = await fetch(`${backendUrl}/api/bookings/${id}/${endpoint}`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+    });
+
+    const result = (await response.json()) as { ok?: boolean; error?: string };
+
+    if (!response.ok || !result.ok) {
+      throw new Error(result.error || "Bron holatini yangilab bo'lmadi.");
+    }
+
     return;
   }
 

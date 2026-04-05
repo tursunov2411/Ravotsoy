@@ -2924,7 +2924,7 @@ export function AdminPage() {
                   </div>
 
                   <div className="flex flex-wrap gap-2 lg:max-w-[220px] lg:justify-end">
-                    {booking.status === "proof_submitted" ? (
+                    {booking.status === "proof_submitted" || booking.status === "pending" ? (
                       <button
                         type="button"
                         onClick={() =>

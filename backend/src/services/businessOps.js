@@ -130,6 +130,73 @@ async function fetchResources() {
   })) : [];
 }
 
+async function fetchSiteSettingsRecord() {
+  const { data, error } = await supabase
+    .from("site_settings")
+    .select(
+      "id, hotel_name, description, location_url, about_text, hero_images, contact_people, payment_card_number, payment_card_holder, payment_instructions, payment_manager_telegram, payment_deposit_ratio",
+    )
+    .eq("id", 1)
+    .maybeSingle();
+
+  if (error) {
+    throw error;
+  }
+
+  return data;
+}
+
+export async function getSitePaymentSettings() {
+  const data = await fetchSiteSettingsRecord();
+
+  return {
+    cardNumber: String(data?.payment_card_number ?? "").trim(),
+    cardHolder: String(data?.payment_card_holder ?? "").trim(),
+    managerTelegram: String(data?.payment_manager_telegram ?? "").trim(),
+    instructions: String(data?.payment_instructions ?? "").trim(),
+    depositRatio: Number(data?.payment_deposit_ratio ?? 0.3),
+  };
+}
+
+export async function updateSitePaymentSettings(values = {}) {
+  const current = await fetchSiteSettingsRecord();
+  const payload = {
+    id: 1,
+    hotel_name: current?.hotel_name ?? "Ravotsoy Dam Olish Maskani",
+    description: current?.description ?? "",
+    location_url: current?.location_url ?? "https://yandex.com/maps/-/CHeC5WPL",
+    about_text: current?.about_text ?? "",
+    hero_images: current?.hero_images ?? [],
+    contact_people: current?.contact_people ?? [],
+    payment_card_number: typeof values.cardNumber === "string" ? values.cardNumber.trim() || null : current?.payment_card_number ?? null,
+    payment_card_holder: typeof values.cardHolder === "string" ? values.cardHolder.trim() || null : current?.payment_card_holder ?? null,
+    payment_manager_telegram: typeof values.managerTelegram === "string" ? values.managerTelegram.trim() || null : current?.payment_manager_telegram ?? null,
+    payment_instructions: typeof values.instructions === "string" ? values.instructions.trim() || null : current?.payment_instructions ?? null,
+    payment_deposit_ratio: Number(values.depositRatio ?? current?.payment_deposit_ratio ?? 0.3),
+  };
+
+  const { data, error } = await supabase
+    .from("site_settings")
+    .update(payload)
+    .eq("id", 1)
+    .select(
+      "id, payment_card_number, payment_card_holder, payment_manager_telegram, payment_instructions, payment_deposit_ratio",
+    )
+    .single();
+
+  if (error) {
+    throw error;
+  }
+
+  return {
+    cardNumber: String(data?.payment_card_number ?? "").trim(),
+    cardHolder: String(data?.payment_card_holder ?? "").trim(),
+    managerTelegram: String(data?.payment_manager_telegram ?? "").trim(),
+    instructions: String(data?.payment_instructions ?? "").trim(),
+    depositRatio: Number(data?.payment_deposit_ratio ?? 0.3),
+  };
+}
+
 export async function createResource({ type, name, capacity, isActive = true }) {
   const normalizedType = String(type ?? "").trim();
   const normalizedName = String(name ?? "").trim() || "Resurs";

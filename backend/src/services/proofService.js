@@ -382,6 +382,84 @@ export async function rejectBookingProof(bookingId) {
   return fetchBookingContext(normalizedBookingId);
 }
 
+export async function approveBookingManually(bookingId) {
+  const normalizedBookingId = requireText(bookingId, "bookingId");
+
+  const { error } = await supabase
+    .from("bookings")
+    .update({
+      status: "confirmed",
+      payment_status: "paid",
+      manager_proof_message_id: null,
+      manager_proof_chat_id: null,
+    })
+    .eq("id", normalizedBookingId);
+
+  if (error) {
+    throw error;
+  }
+
+  const { data: payment } = await supabase
+    .from("payments")
+    .select("id")
+    .eq("booking_id", normalizedBookingId)
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  if (payment?.id) {
+    const { error: paymentError } = await supabase
+      .from("payments")
+      .update({ status: "verified" })
+      .eq("id", payment.id);
+
+    if (paymentError) {
+      throw paymentError;
+    }
+  }
+
+  return fetchBookingContext(normalizedBookingId);
+}
+
+export async function rejectBookingManually(bookingId) {
+  const normalizedBookingId = requireText(bookingId, "bookingId");
+
+  const { error } = await supabase
+    .from("bookings")
+    .update({
+      status: "rejected",
+      payment_status: "failed",
+      manager_proof_message_id: null,
+      manager_proof_chat_id: null,
+    })
+    .eq("id", normalizedBookingId);
+
+  if (error) {
+    throw error;
+  }
+
+  const { data: payment } = await supabase
+    .from("payments")
+    .select("id")
+    .eq("booking_id", normalizedBookingId)
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  if (payment?.id) {
+    const { error: paymentError } = await supabase
+      .from("payments")
+      .update({ status: "rejected" })
+      .eq("id", payment.id);
+
+    if (paymentError) {
+      throw paymentError;
+    }
+  }
+
+  return fetchBookingContext(normalizedBookingId);
+}
+
 export async function loadLatestProofAsset(bookingId) {
   const context = await fetchBookingContext(bookingId);
   const proofUrl = String(context?.payment?.proof_url ?? "").trim();

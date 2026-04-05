@@ -28,10 +28,11 @@ function getBookingLabel(booking) {
 function buildManagerDecisionKeyboard(bookingId) {
   return {
     inline_keyboard: [
-      [{ text: "View Proof", callback_data: `view_${bookingId}` }],
+      [{ text: "👁 Bronni ko'rish", callback_data: `mbook_detail_${bookingId}` }],
+      [{ text: "🧾 Chekni ko'rish", callback_data: `view_${bookingId}` }],
       [
-        { text: "Approve", callback_data: `approve_${bookingId}` },
-        { text: "Reject", callback_data: `reject_${bookingId}` },
+        { text: "✅ Tasdiqlash", callback_data: `approve_${bookingId}` },
+        { text: "❌ Rad etish", callback_data: `reject_${bookingId}` },
       ],
     ],
   };
@@ -79,7 +80,7 @@ export async function notifyManagerAboutBooking(booking) {
     }
 
     const lines = [
-      "New booking",
+      "🆕 Yangi bron",
       "",
       `Bron ID: ${booking.id}`,
       `Ism: ${booking.name || "Ko'rsatilmagan"}`,
@@ -91,7 +92,9 @@ export async function notifyManagerAboutBooking(booking) {
       `Narx: ${formatPrice(booking.total_price)} so'm`,
     ];
 
-    await managerTelegram.sendMessage(managerChatId, lines.join("\n"));
+    await managerTelegram.sendMessage(managerChatId, lines.join("\n"), {
+      reply_markup: buildManagerDecisionKeyboard(booking.id),
+    });
     await updateNotificationState(booking.id, {
       manager_booking_notified_at: new Date().toISOString(),
     });
@@ -121,7 +124,7 @@ export async function notifyManagerAboutProof(context) {
     }
 
     const lines = [
-      "New payment proof",
+      "🧾 Yangi to'lov cheki",
       "",
       `Booking: ${booking.id}`,
       `User: ${booking.name || "Ko'rsatilmagan"}`,

@@ -1,5 +1,12 @@
 import { createTelegramClient, formatAxiosError, readOptionalEnv } from "./shared.js";
-import { approveBookingProof, fetchBookingContext, loadLatestProofAsset, rejectBookingProof } from "../services/proofService.js";
+import {
+  approveBookingManually,
+  approveBookingProof,
+  fetchBookingContext,
+  loadLatestProofAsset,
+  rejectBookingManually,
+  rejectBookingProof,
+} from "../services/proofService.js";
 import {
   addReportRecipient,
   buildDailyReportMessage,
@@ -11,12 +18,14 @@ import {
   getDailyReportRecipients,
   getBusinessAnalytics,
   getResourceOverview,
+  getSitePaymentSettings,
   getSystemStatus,
   linkReportRecipientFromTelegram,
   listBookingsForManager,
   listPricingRules,
   listReportRecipients,
   removeReportRecipient,
+  updateSitePaymentSettings,
   updatePricingRuleValues,
   updateResourceDetails,
 } from "../services/businessOps.js";
@@ -31,6 +40,7 @@ const BUTTONS = {
   bookings: "📚 Bronlar",
   resources: "🏡 Resurslar",
   pricing: "💵 Narxlar",
+  payments: "💳 To'lov sozlamalari",
   analytics: "📊 Analitika",
   report: "🗂 Hisobotlar",
   status: "🛠 Tizim holati",
@@ -49,6 +59,7 @@ const ACTIONS = {
   resourceCapDown: "mres_cd_",
   resourceImageUpload: "mres_img_up_",
   resourceImageDelete: "mres_img_del_",
+  bookingDetail: "mbook_detail_",
   pricing: "mpr_",
   pricingBaseUp: "mpr_bu_",
   pricingBaseDown: "mpr_bd_",
@@ -60,6 +71,7 @@ const ACTIONS = {
   pricingDiscountDown: "mpr_dd_",
   report: "mrep_",
   reportRecipientDelete: "mrep_del_",
+  payment: "mpay_",
   main: "mmain_",
   resourceCreate: "mres_new_",
   backMain: "mback_main",
@@ -102,7 +114,10 @@ function buildMainKeyboard() {
         { text: BUTTONS.analytics, callback_data: `${ACTIONS.main}analytics` },
       ],
       [
+        { text: BUTTONS.payments, callback_data: `${ACTIONS.main}payments` },
         { text: BUTTONS.report, callback_data: `${ACTIONS.main}report` },
+      ],
+      [
         { text: BUTTONS.status, callback_data: `${ACTIONS.main}status` },
       ],
     ],
@@ -180,6 +195,56 @@ function buildReportRecipientsKeyboard(recipients) {
         },
       ]),
       [{ text: "🔙 Orqaga", callback_data: `${ACTIONS.report}menu` }],
+    ],
+  };
+}
+
+function buildBookingDetailKeyboard(booking) {
+  const actions = [
+    [{ text: "📚 Bronlar ro'yxati", callback_data: `${ACTIONS.main}bookings` }],
+  ];
+
+  if (booking.trackingStatus === "pending" || booking.trackingStatus === "awaiting confirmation") {
+    actions.unshift([
+      { text: "✅ Tasdiqlash", callback_data: `${ACTIONS.approve}${booking.id}` },
+      { text: "❌ Rad etish", callback_data: `${ACTIONS.reject}${booking.id}` },
+    ]);
+  }
+
+  if (booking.trackingStatus === "awaiting confirmation") {
+    actions.unshift([{ text: "🧾 Chekni ko'rish", callback_data: `${ACTIONS.view}${booking.id}` }]);
+  }
+
+  actions.push([{ text: "🔙 Orqaga", callback_data: ACTIONS.backMain }]);
+  return { inline_keyboard: actions };
+}
+
+function buildBookingListKeyboard(bookings) {
+  return {
+    inline_keyboard: [
+      ...bookings.slice(0, 10).map((booking) => [
+        {
+          text: `👁 ${booking.bookingLabel}`,
+          callback_data: `${ACTIONS.bookingDetail}${booking.id}`,
+        },
+      ]),
+      [{ text: "🔙 Orqaga", callback_data: ACTIONS.backMain }],
+    ],
+  };
+}
+
+function buildPaymentSettingsKeyboard() {
+  return {
+    inline_keyboard: [
+      [
+        { text: "💳 Karta raqami", callback_data: `${ACTIONS.payment}card_number` },
+        { text: "👤 Karta egasi", callback_data: `${ACTIONS.payment}card_holder` },
+      ],
+      [
+        { text: "💬 To'lov Telegram", callback_data: `${ACTIONS.payment}manager_telegram` },
+        { text: "📝 Ko'rsatma", callback_data: `${ACTIONS.payment}instructions` },
+      ],
+      [{ text: "🔙 Orqaga", callback_data: ACTIONS.backMain }],
     ],
   };
 }
@@ -338,11 +403,41 @@ function formatSystemStatus(status) {
   ].join("\n");
 }
 
+function formatBookingDetail(booking) {
+  return [
+    "🧾 Bron tafsilotlari",
+    "",
+    `ID: ${booking.id}`,
+    `Mijoz: ${booking.name || "Ko'rsatilmagan"}`,
+    `Telefon: ${booking.phone || "Ko'rsatilmagan"}`,
+    `Tanlov: ${booking.bookingLabel}`,
+    `Holat: ${booking.trackingStatus}`,
+    `Manba: ${booking.source}`,
+    `Sana: ${booking.dateStart}${booking.dateEnd ? ` - ${booking.dateEnd}` : ""}`,
+    `Narx: ${formatPrice(booking.totalPrice)} UZS`,
+  ].join("\n");
+}
+
+function formatPaymentSettings(settings) {
+  return [
+    "💳 To'lov sozlamalari",
+    "",
+    `Karta raqami: ${settings.cardNumber || "kiritilmagan"}`,
+    `Karta egasi: ${settings.cardHolder || "kiritilmagan"}`,
+    `To'lov Telegram: ${settings.managerTelegram || "kiritilmagan"}`,
+    `Ko'rsatma: ${settings.instructions || "kiritilmagan"}`,
+    `Oldindan to'lov: ${Math.round(Number(settings.depositRatio ?? 0.3) * 100)}%`,
+    "",
+    "Pastdagi tugma orqali kerakli maydonni yangilang.",
+  ].join("\n");
+}
+
 export function createManagerBot() {
   const managerToken = readOptionalEnv("MANAGER_BOT_TOKEN");
   const telegram = managerToken ? createTelegramClient(managerToken) : null;
   const pendingImageUploads = new Map();
   const pendingRecipientInputs = new Map();
+  const pendingPaymentInputs = new Map();
 
   async function sendManagerMessage(chatId, text, extra = {}) {
     if (!telegram) {
@@ -394,6 +489,13 @@ export function createManagerBot() {
   async function showAnalyticsMenu(chatId) {
     await sendManagerMessage(chatId, "📊 Analitika markazi\n\nDavrni tanlang va tizim ko'rsatkichlarini ko'ring.", {
       reply_markup: buildAnalyticsKeyboard(),
+    });
+  }
+
+  async function showPaymentSettingsMenu(chatId) {
+    const settings = await getSitePaymentSettings();
+    await sendManagerMessage(chatId, formatPaymentSettings(settings), {
+      reply_markup: buildPaymentSettingsKeyboard(),
     });
   }
 
@@ -488,7 +590,9 @@ export function createManagerBot() {
       const bookings = await listBookingsForManager({
         date: new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Tashkent", year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date()),
       });
-      await sendManagerMessage(chatId, formatBookingList("📅 Bugungi bronlar", bookings), { reply_markup: buildBookingsKeyboard() });
+      await sendManagerMessage(chatId, formatBookingList("📅 Bugungi bronlar", bookings), {
+        reply_markup: bookings.length > 0 ? buildBookingListKeyboard(bookings) : buildBookingsKeyboard(),
+      });
       return;
     }
 
@@ -497,7 +601,9 @@ export function createManagerBot() {
       tomorrow.setDate(tomorrow.getDate() + 1);
       const tomorrowText = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Tashkent", year: "numeric", month: "2-digit", day: "2-digit" }).format(tomorrow);
       const bookings = await listBookingsForManager({ date: tomorrowText });
-      await sendManagerMessage(chatId, formatBookingList("📆 Ertangi bronlar", bookings), { reply_markup: buildBookingsKeyboard() });
+      await sendManagerMessage(chatId, formatBookingList("📆 Ertangi bronlar", bookings), {
+        reply_markup: bookings.length > 0 ? buildBookingListKeyboard(bookings) : buildBookingsKeyboard(),
+      });
       return;
     }
 
@@ -505,7 +611,9 @@ export function createManagerBot() {
       const source = key.slice(4);
       const bookings = await listBookingsForManager({ source });
       const sourceLabel = source === "telegram" ? "Telegram" : source === "website" ? "Sayt" : source;
-      await sendManagerMessage(chatId, formatBookingList(`🌐 ${sourceLabel} bronlari`, bookings), { reply_markup: buildBookingsKeyboard() });
+      await sendManagerMessage(chatId, formatBookingList(`🌐 ${sourceLabel} bronlari`, bookings), {
+        reply_markup: bookings.length > 0 ? buildBookingListKeyboard(bookings) : buildBookingsKeyboard(),
+      });
       return;
     }
 
@@ -525,7 +633,41 @@ export function createManagerBot() {
       rejected: "❌ Rad etilgan bronlar",
     };
     await sendManagerMessage(chatId, formatBookingList(titleMap[status] ?? "📚 So'nggi bronlar", bookings), {
-      reply_markup: buildBookingsKeyboard(),
+      reply_markup: bookings.length > 0 ? buildBookingListKeyboard(bookings) : buildBookingsKeyboard(),
+    });
+  }
+
+  async function showBookingDetail(chatId, bookingId) {
+    const context = await fetchBookingContext(bookingId);
+
+    if (!context?.booking) {
+      await sendManagerMessage(chatId, "❌ Bron topilmadi.", {
+        reply_markup: buildMainKeyboard(),
+      });
+      return;
+    }
+
+    const booking = context.booking;
+    const detail = {
+      id: booking.id,
+      name: booking.name,
+      phone: booking.phone,
+      bookingLabel: booking.booking_label || booking.resource_summary || "Ko'rsatilmagan",
+      trackingStatus: booking.status === "proof_submitted" || booking.payment_status === "pending_verification"
+        ? "awaiting confirmation"
+        : booking.status === "confirmed" || booking.status === "completed"
+          ? "confirmed"
+          : booking.status === "rejected" || booking.status === "cancelled"
+            ? "rejected"
+            : "pending",
+      source: booking.source,
+      dateStart: booking.date_start,
+      dateEnd: booking.date_end,
+      totalPrice: booking.total_price,
+    };
+
+    await sendManagerMessage(chatId, formatBookingDetail(detail), {
+      reply_markup: buildBookingDetailKeyboard(detail),
     });
   }
 
@@ -650,7 +792,19 @@ export function createManagerBot() {
     }
 
     try {
-      const context = approved ? await approveBookingProof(bookingId) : await rejectBookingProof(bookingId);
+      const current = await fetchBookingContext(bookingId);
+
+      if (!current?.booking) {
+        await answerCallbackQuery(callbackQueryId, "Bron topilmadi.");
+        return true;
+      }
+
+      const needsProofDecision =
+        current.booking.status === "proof_submitted"
+        || current.booking.payment_status === "pending_verification";
+      const context = approved
+        ? (needsProofDecision ? await approveBookingProof(bookingId) : await approveBookingManually(bookingId))
+        : (needsProofDecision ? await rejectBookingProof(bookingId) : await rejectBookingManually(bookingId));
 
       await clearManagerDecisionKeyboard(chatId, messageId, bookingId);
       await answerCallbackQuery(callbackQueryId, approved ? "Bron tasdiqlandi." : "Bron rad etildi.");
@@ -695,6 +849,11 @@ export function createManagerBot() {
           return true;
         }
 
+        if (key === "payments") {
+          await showPaymentSettingsMenu(chatId);
+          return true;
+        }
+
         if (key === "analytics") {
           await showAnalyticsMenu(chatId);
           return true;
@@ -726,6 +885,12 @@ export function createManagerBot() {
       if (data.startsWith(ACTIONS.bookings)) {
         await answerCallbackQuery(callbackQueryId, "Bronlar");
         await showFilteredBookings(chatId, data.slice(ACTIONS.bookings.length));
+        return true;
+      }
+
+      if (data.startsWith(ACTIONS.bookingDetail)) {
+        await answerCallbackQuery(callbackQueryId, "Bron tafsilotlari");
+        await showBookingDetail(chatId, data.slice(ACTIONS.bookingDetail.length));
         return true;
       }
 
@@ -878,6 +1043,38 @@ export function createManagerBot() {
         return true;
       }
 
+      if (data.startsWith(ACTIONS.payment)) {
+        const key = data.slice(ACTIONS.payment.length);
+
+        if (key === "card_number") {
+          pendingPaymentInputs.set(chatId, { field: "cardNumber" });
+          await answerCallbackQuery(callbackQueryId, "Karta raqamini yuboring");
+          await sendManagerMessage(chatId, "💳 Yangi karta raqamini yuboring.");
+          return true;
+        }
+
+        if (key === "card_holder") {
+          pendingPaymentInputs.set(chatId, { field: "cardHolder" });
+          await answerCallbackQuery(callbackQueryId, "Karta egasini yuboring");
+          await sendManagerMessage(chatId, "👤 Yangi karta egasi ismini yuboring.");
+          return true;
+        }
+
+        if (key === "manager_telegram") {
+          pendingPaymentInputs.set(chatId, { field: "managerTelegram" });
+          await answerCallbackQuery(callbackQueryId, "Telegramni yuboring");
+          await sendManagerMessage(chatId, "💬 To'lov bo'yicha Telegram username yoki havolani yuboring.");
+          return true;
+        }
+
+        if (key === "instructions") {
+          pendingPaymentInputs.set(chatId, { field: "instructions" });
+          await answerCallbackQuery(callbackQueryId, "Ko'rsatmani yuboring");
+          await sendManagerMessage(chatId, "📝 Yangi to'lov ko'rsatmasini yuboring.");
+          return true;
+        }
+      }
+
       if (data === `${ACTIONS.pricing}menu`) {
         await answerCallbackQuery(callbackQueryId, "Narxlar");
         await showPricingMenu(chatId);
@@ -1008,6 +1205,31 @@ export function createManagerBot() {
           return;
         }
 
+        const pendingPaymentInput = pendingPaymentInputs.get(chatId);
+
+        if (pendingPaymentInput) {
+          try {
+            const value = text;
+
+            if (!value) {
+              await sendManagerMessage(chatId, "⚠️ Qiymat yuborilmadi. Maydonni qayta yuboring.");
+              return;
+            }
+
+            const payload = {};
+            payload[pendingPaymentInput.field] = value;
+            await updateSitePaymentSettings(payload);
+            pendingPaymentInputs.delete(chatId);
+            await sendManagerMessage(chatId, "✅ To'lov sozlamalari yangilandi.");
+            await showPaymentSettingsMenu(chatId);
+          } catch (error) {
+            console.error(`Payment settings update failed: ${formatAxiosError(error)}`);
+            await sendManagerMessage(chatId, error instanceof Error ? `❌ ${error.message}` : "❌ To'lov sozlamalarini saqlab bo'lmadi.");
+          }
+
+          return;
+        }
+
         if (isStartCommand(text) || isHelpCommand(text)) {
           await showMainMenu(chatId, "👋 Manager panel tayyor.\n\nBarcha boshqaruv tugmalar orqali ishlaydi.");
           return;
@@ -1025,6 +1247,11 @@ export function createManagerBot() {
 
         if (text === BUTTONS.pricing) {
           await showPricingMenu(chatId);
+          return;
+        }
+
+        if (text === BUTTONS.payments) {
+          await showPaymentSettingsMenu(chatId);
           return;
         }
 

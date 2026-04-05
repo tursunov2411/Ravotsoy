@@ -10,7 +10,13 @@ import {
   getTripBuilderOptions,
   quoteBooking,
 } from "./services/bookingEngine.js";
-import { approveBookingProof, rejectBookingProof, submitBookingProof } from "./services/proofService.js";
+import {
+  approveBookingManually,
+  approveBookingProof,
+  rejectBookingManually,
+  rejectBookingProof,
+  submitBookingProof,
+} from "./services/proofService.js";
 import { claimTelegramUpdate } from "./services/telegramFlow.js";
 
 const DEFAULT_PORT = 3001;
@@ -192,7 +198,8 @@ export function createTelegramWebhookApp() {
 
   app.post("/api/bookings/:id/approve", async (req, res) => {
     try {
-      const context = await approveBookingProof(String(req.params.id ?? "").trim());
+      const bookingId = String(req.params.id ?? "").trim();
+      const context = await approveBookingManually(bookingId);
       res.status(200).json({ ok: true, context });
     } catch (error) {
       const message = error instanceof Error ? error.message : "Noma'lum xatolik";
@@ -202,7 +209,8 @@ export function createTelegramWebhookApp() {
 
   app.post("/api/bookings/:id/reject", async (req, res) => {
     try {
-      const context = await rejectBookingProof(String(req.params.id ?? "").trim());
+      const bookingId = String(req.params.id ?? "").trim();
+      const context = await rejectBookingManually(bookingId);
       res.status(200).json({ ok: true, context });
     } catch (error) {
       const message = error instanceof Error ? error.message : "Noma'lum xatolik";
