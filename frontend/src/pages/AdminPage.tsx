@@ -21,12 +21,14 @@ import {
   getAdminBookings,
   getMediaAssets,
   getPackages,
+  getSiteSettings,
   getSession,
   onAuthChange,
   signOutAdmin,
   updateBookingStatus,
   uploadMediaAsset,
   uploadPackageImage,
+  upsertSiteSettings,
   upsertPackage,
 } from "../lib/api";
 import { hasSupabaseConfig } from "../lib/supabase";
@@ -36,6 +38,7 @@ import type {
   MediaKind,
   PackageInput,
   PackageRecord,
+  SiteSettings,
 } from "../lib/types";
 import { cn, formatCurrency, isVideoUrl } from "../lib/utils";
 
@@ -46,6 +49,14 @@ const emptyPackage: PackageInput = {
   base_price: 0,
   price_per_guest: 0,
   max_guests: 1,
+};
+
+const emptySiteSettings: Omit<SiteSettings, "id"> = {
+  location_label: "Bizning manzilimiz",
+  location_url: "https://yandex.com/maps/-/CHeC5WPL",
+  maps_embed_url: "",
+  contacts_button_label: "",
+  contacts_button_url: "",
 };
 
 function statusLabel(status: BookingRecord["status"]) {
@@ -134,6 +145,7 @@ export function AdminPage() {
   const [packages, setPackages] = useState<PackageRecord[]>([]);
   const [bookings, setBookings] = useState<BookingRecord[]>([]);
   const [media, setMedia] = useState<MediaAsset[]>([]);
+  const [siteSettings, setSiteSettings] = useState<Omit<SiteSettings, "id">>(emptySiteSettings);
   const [packageForm, setPackageForm] = useState<PackageInput>(emptyPackage);
   const [packageImageFile, setPackageImageFile] = useState<File | null>(null);
   const [editingPackageId, setEditingPackageId] = useState<string | null>(null);
@@ -149,14 +161,22 @@ export function AdminPage() {
   const [error, setError] = useState("");
 
   const refresh = async () => {
-    const [packagesData, bookingsData, mediaData] = await Promise.all([
+    const [packagesData, bookingsData, mediaData, settingsData] = await Promise.all([
       getPackages(),
       getAdminBookings(),
       getMediaAssets(),
+      getSiteSettings(),
     ]);
     setPackages(packagesData);
     setBookings(bookingsData);
     setMedia(mediaData);
+    setSiteSettings({
+      location_label: settingsData.location_label,
+      location_url: settingsData.location_url,
+      maps_embed_url: settingsData.maps_embed_url ?? "",
+      contacts_button_label: settingsData.contacts_button_label ?? "",
+      contacts_button_url: settingsData.contacts_button_url ?? "",
+    });
   };
 
   useEffect(() => {
@@ -291,6 +311,29 @@ export function AdminPage() {
     }
   };
 
+  const handleSiteSettingsSubmit = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    setWorking(true);
+    resetMessages();
+
+    try {
+      await upsertSiteSettings({
+        location_label: siteSettings.location_label.trim(),
+        location_url: siteSettings.location_url.trim(),
+        maps_embed_url: siteSettings.maps_embed_url?.trim() ?? "",
+        contacts_button_label: siteSettings.contacts_button_label?.trim() ?? "",
+        contacts_button_url: siteSettings.contacts_button_url?.trim() ?? "",
+      });
+      await refresh();
+      setNotice("Sayt sozlamalari saqlandi.");
+    } catch (submitError) {
+      console.error(submitError);
+      setError("Sayt sozlamalarini saqlashda xatolik yuz berdi.");
+    } finally {
+      setWorking(false);
+    }
+  };
+
   const pendingCount = bookings.filter((booking) => booking.status === "pending").length;
   const approvedCount = bookings.filter((booking) => booking.status === "approved").length;
   const heroMedia = media.filter((item) => item.type === "hero");
@@ -398,6 +441,107 @@ export function AdminPage() {
           {error}
         </div>
       ) : null}
+
+      <div className="mt-6">
+        <SectionCard
+          title="Sayt sozlamalari"
+          description="Joylashuv havolasi, ixtiyoriy embed xarita va Telegram yonidagi Contacts tugmasini shu yerdan boshqaring."
+        >
+          <form className="grid gap-4 lg:grid-cols-2" onSubmit={handleSiteSettingsSubmit}>
+            <label className="space-y-2 text-sm text-ink/70">
+              <span>Joylashuv nomi</span>
+              <input
+                required
+                value={siteSettings.location_label}
+                onChange={(event) =>
+                  setSiteSettings((current) => ({
+                    ...current,
+                    location_label: event.target.value,
+                  }))
+                }
+                className={inputClassName()}
+              />
+            </label>
+
+            <label className="space-y-2 text-sm text-ink/70">
+              <span>Joylashuv havolasi</span>
+              <input
+                required
+                type="url"
+                value={siteSettings.location_url}
+                onChange={(event) =>
+                  setSiteSettings((current) => ({
+                    ...current,
+                    location_url: event.target.value,
+                  }))
+                }
+                className={inputClassName()}
+              />
+            </label>
+
+            <label className="space-y-2 text-sm text-ink/70 lg:col-span-2">
+              <span>Xarita embed URL</span>
+              <input
+                type="url"
+                placeholder="https://..."
+                value={siteSettings.maps_embed_url ?? ""}
+                onChange={(event) =>
+                  setSiteSettings((current) => ({
+                    ...current,
+                    maps_embed_url: event.target.value,
+                  }))
+                }
+                className={inputClassName()}
+              />
+              <p className="text-xs leading-5 text-ink/45">
+                Ixtiyoriy. Agar embed URL bo'sh qolsa, sayt Yandex xaritani ochish tugmasini ko'rsatadi.
+              </p>
+            </label>
+
+            <label className="space-y-2 text-sm text-ink/70">
+              <span>Contacts tugmasi matni</span>
+              <input
+                placeholder="Masalan: Contacts"
+                value={siteSettings.contacts_button_label ?? ""}
+                onChange={(event) =>
+                  setSiteSettings((current) => ({
+                    ...current,
+                    contacts_button_label: event.target.value,
+                  }))
+                }
+                className={inputClassName()}
+              />
+            </label>
+
+            <label className="space-y-2 text-sm text-ink/70">
+              <span>Contacts tugmasi havolasi</span>
+              <input
+                type="url"
+                placeholder="https://..., tel:+998..., mailto:..."
+                value={siteSettings.contacts_button_url ?? ""}
+                onChange={(event) =>
+                  setSiteSettings((current) => ({
+                    ...current,
+                    contacts_button_url: event.target.value,
+                  }))
+                }
+                className={inputClassName()}
+              />
+            </label>
+
+            <div className="lg:col-span-2">
+              <button
+                type="submit"
+                disabled={working}
+                className="inline-flex items-center justify-center gap-2 rounded-full bg-ink px-5 py-3 text-sm font-medium text-white transition hover:bg-pine disabled:cursor-not-allowed disabled:bg-ink/60"
+              >
+                {working ? <LoaderCircle className="animate-spin" size={16} /> : null}
+                Sozlamalarni saqlash
+              </button>
+            </div>
+          </form>
+        </SectionCard>
+      </div>
 
       <div className="mt-6 grid gap-6 2xl:grid-cols-[1.02fr_0.98fr]">
         <SectionCard

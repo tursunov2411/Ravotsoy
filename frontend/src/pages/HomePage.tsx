@@ -1,4 +1,4 @@
-import { ArrowRight, MapPinned, MessageCircleMore, Sparkles, Trees } from "lucide-react";
+import { ArrowRight, ExternalLink, MapPinned, MessageCircleMore, Phone, Sparkles, Trees } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { AnimatedSection } from "../components/AnimatedSection";
@@ -6,20 +6,26 @@ import { PackageCard } from "../components/PackageCard";
 import InteractiveBentoGallery, {
   type BentoGalleryItem,
 } from "../components/ui/interactive-bento-gallery";
-import { getMediaAssets, getPackages } from "../lib/api";
-import type { MediaAsset, PackageRecord } from "../lib/types";
+import { getMediaAssets, getPackages, getSiteSettings } from "../lib/api";
+import type { MediaAsset, PackageRecord, SiteSettings } from "../lib/types";
 import { getTelegramLink, isVideoUrl } from "../lib/utils";
 
 export function HomePage() {
   const [packages, setPackages] = useState<PackageRecord[]>([]);
   const [media, setMedia] = useState<MediaAsset[]>([]);
+  const [siteSettings, setSiteSettings] = useState<SiteSettings | null>(null);
 
   useEffect(() => {
     const load = async () => {
       try {
-        const [packagesData, mediaData] = await Promise.all([getPackages(), getMediaAssets()]);
+        const [packagesData, mediaData, settingsData] = await Promise.all([
+          getPackages(),
+          getMediaAssets(),
+          getSiteSettings(),
+        ]);
         setPackages(packagesData);
         setMedia(mediaData);
+        setSiteSettings(settingsData);
       } catch (error) {
         console.error(error);
       }
@@ -31,9 +37,12 @@ export function HomePage() {
   const hero = media.find((item) => item.type === "hero") ?? media[0];
   const gallery = media.filter((item) => item.type === "gallery");
   const telegramLink = getTelegramLink("Salom, Ravotsoy Dam olish Maskani haqida ma'lumot olmoqchiman.");
-  const mapsEmbedUrl =
-    import.meta.env.VITE_GOOGLE_MAPS_EMBED_URL ||
-    "https://www.google.com/maps?q=Ravotsoy,+Sharof+Rashidov+tuman,+Jizzax,+Uzbekistan&output=embed";
+  const mapsEmbedUrl = siteSettings?.maps_embed_url?.trim() ?? "";
+  const locationUrl = siteSettings?.location_url?.trim() || "https://yandex.com/maps/-/CHeC5WPL";
+  const locationLabel = siteSettings?.location_label?.trim() || "Bizning manzilimiz";
+  const contactsButtonLabel = siteSettings?.contacts_button_label?.trim() ?? "";
+  const contactsButtonUrl = siteSettings?.contacts_button_url?.trim() ?? "";
+  const hasContactsButton = Boolean(contactsButtonLabel && contactsButtonUrl);
   const galleryItems = useMemo<BentoGalleryItem[]>(() => {
     const spans = [
       "sm:col-span-1 sm:row-span-3 md:col-span-1 md:row-span-3",
@@ -205,15 +214,38 @@ export function HomePage() {
                 <p className="text-xs uppercase tracking-[0.3em] text-ink/35">Joylashuv</p>
                 <h2 className="mt-3 text-3xl font-semibold tracking-tight">Maskan manzili</h2>
               </div>
-              <div className="h-[420px]">
-                <iframe
-                  title="Ravotsoy Dam olish Maskani xaritasi"
-                  src={mapsEmbedUrl}
-                  className="h-full w-full border-0"
-                  loading="lazy"
-                  referrerPolicy="no-referrer-when-downgrade"
-                />
-              </div>
+              {mapsEmbedUrl ? (
+                <div className="h-[420px]">
+                  <iframe
+                    title="Ravotsoy Dam olish Maskani xaritasi"
+                    src={mapsEmbedUrl}
+                    className="h-full w-full border-0"
+                    loading="lazy"
+                    referrerPolicy="no-referrer-when-downgrade"
+                  />
+                </div>
+              ) : (
+                <div className="flex h-[420px] items-center justify-center bg-[radial-gradient(circle_at_top,#ebf4ef_0%,#f6f3ec_55%,#ffffff_100%)] p-8">
+                  <div className="max-w-md rounded-[28px] border border-black/6 bg-white/88 p-8 text-center shadow-soft backdrop-blur">
+                    <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-full bg-pearl text-pine">
+                      <MapPinned size={24} />
+                    </div>
+                    <h3 className="mt-5 text-2xl font-semibold tracking-tight text-ink">{locationLabel}</h3>
+                    <p className="mt-3 text-sm leading-7 text-ink/62">
+                      Bizning aniq joylashuvimizni Yandex xaritada ochib ko'rishingiz mumkin.
+                    </p>
+                    <a
+                      href={locationUrl}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="mt-6 inline-flex items-center justify-center gap-2 rounded-full bg-ink px-5 py-3 text-sm font-medium text-white transition hover:bg-pine"
+                    >
+                      Xaritani ochish
+                      <ExternalLink size={16} />
+                    </a>
+                  </div>
+                </div>
+              )}
             </div>
 
             <div className="rounded-[32px] border border-black/5 bg-white p-8 shadow-soft">
@@ -227,19 +259,39 @@ export function HomePage() {
               <div className="mt-8 rounded-[28px] bg-pearl p-5">
                 <div className="flex items-center gap-3">
                   <MapPinned className="text-pine" size={20} />
-                  <p className="text-sm font-medium text-ink">
-                    Ravotsoy hududi, Sharof Rashidov tumani, Jizzax tomoni
-                  </p>
+                  <a
+                    href={locationUrl}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="text-sm font-medium text-ink transition hover:text-pine"
+                  >
+                    {locationLabel}
+                  </a>
                 </div>
               </div>
 
-              <a
-                href={telegramLink}
-                className="mt-6 inline-flex w-full items-center justify-center gap-2 rounded-full bg-ink px-5 py-4 text-sm font-medium text-white transition hover:bg-pine"
-              >
-                <MessageCircleMore size={18} />
-                Telegram orqali bog'lanish
-              </a>
+              <div className="mt-6 flex flex-col gap-3">
+                <a
+                  href={telegramLink}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="inline-flex w-full items-center justify-center gap-2 rounded-full bg-ink px-5 py-4 text-sm font-medium text-white transition hover:bg-pine"
+                >
+                  <MessageCircleMore size={18} />
+                  Telegram orqali bog'lanish
+                </a>
+                {hasContactsButton ? (
+                  <a
+                    href={contactsButtonUrl}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="inline-flex w-full items-center justify-center gap-2 rounded-full border border-black/10 bg-white px-5 py-4 text-sm font-medium text-ink transition hover:bg-pearl"
+                  >
+                    <Phone size={18} />
+                    {contactsButtonLabel}
+                  </a>
+                ) : null}
+              </div>
             </div>
           </div>
         </AnimatedSection>

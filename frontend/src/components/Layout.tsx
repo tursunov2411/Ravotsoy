@@ -1,7 +1,8 @@
 import { Button } from "./Button";
-import { Menu, MessageCircleMore, X } from "lucide-react";
-import { useState } from "react";
+import { Menu, MessageCircleMore, Phone, X } from "lucide-react";
+import { useEffect, useState } from "react";
 import { NavLink, Outlet } from "react-router-dom";
+import { getSiteSettings } from "../lib/api";
 import { getTelegramLink } from "../lib/utils";
 
 const navigation = [
@@ -19,7 +20,28 @@ function navClass(isActive: boolean) {
 
 export function Layout() {
   const [open, setOpen] = useState(false);
+  const [contactsButton, setContactsButton] = useState({
+    label: "",
+    url: "",
+  });
   const telegramLink = getTelegramLink("Salom, Ravotsoy Dam olish Maskani haqida ma'lumot olmoqchiman.");
+  const hasContactsButton = Boolean(contactsButton.label && contactsButton.url);
+
+  useEffect(() => {
+    const loadSettings = async () => {
+      try {
+        const settings = await getSiteSettings();
+        setContactsButton({
+          label: settings.contacts_button_label?.trim() ?? "",
+          url: settings.contacts_button_url?.trim() ?? "",
+        });
+      } catch (error) {
+        console.error(error);
+      }
+    };
+
+    void loadSettings();
+  }, []);
 
   return (
     <div className="min-h-screen bg-transparent text-ink">
@@ -46,11 +68,24 @@ export function Layout() {
           <div className="hidden items-center gap-3 md:flex">
             <a
               href={telegramLink}
+              target="_blank"
+              rel="noreferrer"
               className="inline-flex items-center gap-2 rounded-full border border-black/8 bg-white/80 px-4 py-2 text-sm font-medium text-ink transition hover:bg-white"
             >
               <MessageCircleMore size={16} />
               Telegram
             </a>
+            {hasContactsButton ? (
+              <a
+                href={contactsButton.url}
+                target="_blank"
+                rel="noreferrer"
+                className="inline-flex items-center gap-2 rounded-full border border-black/8 bg-white/80 px-4 py-2 text-sm font-medium text-ink transition hover:bg-white"
+              >
+                <Phone size={16} />
+                {contactsButton.label}
+              </a>
+            ) : null}
             <Button to="/bron" className="px-5 py-2.5">
               Bron qilish
             </Button>
@@ -81,12 +116,26 @@ export function Layout() {
               ))}
               <a
                 href={telegramLink}
+                target="_blank"
+                rel="noreferrer"
                 className="inline-flex items-center justify-center gap-2 rounded-full border border-black/10 px-4 py-3 text-sm font-medium text-ink"
                 onClick={() => setOpen(false)}
               >
                 <MessageCircleMore size={16} />
                 Telegram orqali bog'lanish
               </a>
+              {hasContactsButton ? (
+                <a
+                  href={contactsButton.url}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="inline-flex items-center justify-center gap-2 rounded-full border border-black/10 px-4 py-3 text-sm font-medium text-ink"
+                  onClick={() => setOpen(false)}
+                >
+                  <Phone size={16} />
+                  {contactsButton.label}
+                </a>
+              ) : null}
             </div>
           </div>
         ) : null}
@@ -107,11 +156,24 @@ export function Layout() {
           <div className="flex flex-col gap-3 sm:flex-row">
             <a
               href={telegramLink}
+              target="_blank"
+              rel="noreferrer"
               className="inline-flex items-center justify-center gap-2 rounded-full border border-black/10 px-5 py-3 text-sm font-medium text-ink transition hover:bg-white"
             >
               <MessageCircleMore size={16} />
               Telegram
             </a>
+            {hasContactsButton ? (
+              <a
+                href={contactsButton.url}
+                target="_blank"
+                rel="noreferrer"
+                className="inline-flex items-center justify-center gap-2 rounded-full border border-black/10 px-5 py-3 text-sm font-medium text-ink transition hover:bg-white"
+              >
+                <Phone size={16} />
+                {contactsButton.label}
+              </a>
+            ) : null}
             <Button to="/bron" variant="secondary" className="w-full sm:w-auto">
               Bron qilish
             </Button>

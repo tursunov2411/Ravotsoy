@@ -1,5 +1,5 @@
 import type { Session } from "@supabase/supabase-js";
-import { mockBookings, mockGallery, mockPackages } from "./mockData";
+import { mockBookings, mockGallery, mockPackages, mockSiteSettings } from "./mockData";
 import { hasSupabaseConfig, supabase } from "./supabase";
 import type {
   BookingRecord,
@@ -8,6 +8,7 @@ import type {
   MediaKind,
   PackageInput,
   PackageRecord,
+  SiteSettings,
 } from "./types";
 
 function ensureSupabase() {
@@ -127,6 +128,75 @@ export async function getMediaAssets() {
     url: item.url,
     package_id: item.package_id,
   }));
+}
+
+export async function getSiteSettings() {
+  if (!hasSupabaseConfig) {
+    return mockSiteSettings;
+  }
+
+  const client = ensureSupabase();
+  const { data, error } = await client
+    .from("site_settings")
+    .select("id, location_label, location_url, maps_embed_url, contacts_button_label, contacts_button_url")
+    .eq("id", 1)
+    .maybeSingle();
+
+  if (error) {
+    throw error;
+  }
+
+  if (!data) {
+    return mockSiteSettings;
+  }
+
+  return {
+    id: Number(data.id),
+    location_label: String(data.location_label ?? ""),
+    location_url: String(data.location_url ?? ""),
+    maps_embed_url: data.maps_embed_url ? String(data.maps_embed_url) : "",
+    contacts_button_label: data.contacts_button_label ? String(data.contacts_button_label) : "",
+    contacts_button_url: data.contacts_button_url ? String(data.contacts_button_url) : "",
+  } satisfies SiteSettings;
+}
+
+export async function upsertSiteSettings(payload: Omit<SiteSettings, "id">) {
+  if (!hasSupabaseConfig) {
+    return {
+      id: 1,
+      ...payload,
+    } satisfies SiteSettings;
+  }
+
+  const client = ensureSupabase();
+  const { data, error } = await client
+    .from("site_settings")
+    .upsert(
+      {
+        id: 1,
+        location_label: payload.location_label,
+        location_url: payload.location_url,
+        maps_embed_url: payload.maps_embed_url || null,
+        contacts_button_label: payload.contacts_button_label || null,
+        contacts_button_url: payload.contacts_button_url || null,
+      },
+      { onConflict: "id" },
+    )
+    .select("id, location_label, location_url, maps_embed_url, contacts_button_label, contacts_button_url")
+    .single();
+
+  if (error) {
+    throw error;
+  }
+
+  return {
+    id: Number(data.id),
+    location_label: String(data.location_label ?? ""),
+    location_url: String(data.location_url ?? ""),
+    maps_embed_url: data.maps_embed_url ? String(data.maps_embed_url) : "",
+    contacts_button_label: data.contacts_button_label ? String(data.contacts_button_label) : "",
+    contacts_button_url: data.contacts_button_url ? String(data.contacts_button_url) : "",
+  } satisfies SiteSettings;
 }
 
 export async function createBooking(payload: Omit<BookingRecord, "id" | "status" | "created_at">) {

@@ -1,4 +1,4 @@
-import type { BookingRecord, MediaAsset, PackageRecord } from "./types";
+import type { BookingRecord, MediaAsset, PackageRecord, SiteSettings } from "./types";
 
 export const mockPackages: PackageRecord[] = [
   {
@@ -86,3 +86,12 @@ export const mockBookings: BookingRecord[] = [
     created_at: "2026-04-05T09:00:00.000Z",
   },
 ];
+
+export const mockSiteSettings: SiteSettings = {
+  id: 1,
+  location_label: "Bizning manzilimiz",
+  location_url: "https://yandex.com/maps/-/CHeC5WPL",
+  maps_embed_url: "",
+  contacts_button_label: "",
+  contacts_button_url: "",
+};
