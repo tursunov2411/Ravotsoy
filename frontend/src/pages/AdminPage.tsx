@@ -2043,6 +2043,7 @@ export function AdminPage() {
                       onClick={() => {
                         setActiveAdminSection("packages");
                         setEditingPackageId(item.id);
+                        setPackageImageFiles([]);
                         setPackageForm({
                           name: item.name,
                           description: item.description,

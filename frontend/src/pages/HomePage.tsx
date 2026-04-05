@@ -300,7 +300,8 @@ export function HomePage() {
       const faqItems = parseFaqItems(section.content.items);
       const ctaLabel = String(section.content.cta_label ?? "Boshqa savolingiz bormi? Telegramdan so'rang").trim();
       const hasCustomCtaUrl = typeof section.content.cta_url === "string";
-      const ctaUrl = hasCustomCtaUrl ? String(section.content.cta_url ?? "").trim() : telegramLink;
+      const rawCtaUrl = hasCustomCtaUrl ? String(section.content.cta_url ?? "").trim() : "";
+      const ctaUrl = hasCustomCtaUrl ? getTelegramProfileLink(rawCtaUrl) : telegramLink;
       const showCta = hasCustomCtaUrl ? ctaUrl.length > 0 : Boolean(ctaLabel);
 
       return (

@@ -176,8 +176,8 @@ export async function upsertPackage(id: string | null, payload: PackageInput) {
         .from("packages")
         .update(basePayload)
         .eq("id", id)
-        .select("id, name, description, type, base_price, price_per_guest, max_guests")
-        .single()
+        .select("id")
+        .maybeSingle()
     : client
         .from("packages")
         .insert({ id: crypto.randomUUID(), ...basePayload })
@@ -190,14 +190,37 @@ export async function upsertPackage(id: string | null, payload: PackageInput) {
     throw error;
   }
 
+  if (id) {
+    return {
+      id,
+      name: basePayload.name,
+      description: basePayload.description,
+      type: basePayload.type as PackageRecord["type"],
+      base_price: Number(basePayload.base_price),
+      price_per_guest: Number(basePayload.price_per_guest),
+      max_guests: Number(basePayload.max_guests),
+      images: [],
+    } satisfies PackageRecord;
+  }
+
+  const insertedData = data as {
+    id: string;
+    name: string;
+    description: string;
+    type: string;
+    base_price: number;
+    price_per_guest: number;
+    max_guests: number;
+  };
+
   return {
-    id: String(data.id),
-    name: String(data.name),
-    description: String(data.description),
-    type: data.type as PackageRecord["type"],
-    base_price: Number(data.base_price),
-    price_per_guest: Number(data.price_per_guest),
-    max_guests: Number(data.max_guests),
+    id: String(insertedData.id),
+    name: String(insertedData.name),
+    description: String(insertedData.description),
+    type: insertedData.type as PackageRecord["type"],
+    base_price: Number(insertedData.base_price),
+    price_per_guest: Number(insertedData.price_per_guest),
+    max_guests: Number(insertedData.max_guests),
     images: [],
   } satisfies PackageRecord;
 }
