@@ -121,7 +121,8 @@ export default function PricingSection4({ packages }: PricingSectionProps) {
       <TimelineContent
         animationNum={0}
         customVariants={revealVariants}
-        className="absolute inset-x-0 top-0 h-80 overflow-hidden [mask-image:radial-gradient(50%_50%,white,transparent)]"
+        className="absolute inset-x-0 top-0 h-80 overflow-hidden"
+        
       >
         <div className="absolute inset-0 bg-[linear-gradient(to_right,#ffffff12_1px,transparent_1px),linear-gradient(to_bottom,#ffffff08_1px,transparent_1px)] bg-[size:68px_72px]" />
         <Sparkles
@@ -129,7 +130,7 @@ export default function PricingSection4({ packages }: PricingSectionProps) {
           speed={0.7}
           opacity={0.85}
           color="#ffffff"
-          className="absolute inset-0 h-full w-full [mask-image:radial-gradient(50%_50%,white,transparent_85%)]"
+          className="absolute inset-0 h-full w-full"
         />
       </TimelineContent>
 
