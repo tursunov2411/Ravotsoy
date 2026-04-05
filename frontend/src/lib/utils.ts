@@ -2,6 +2,10 @@ export function formatCurrency(value: number) {
   return `${new Intl.NumberFormat("uz-UZ").format(value)} so'm`;
 }
 
+export function cn(...classes: Array<string | false | null | undefined>) {
+  return classes.filter(Boolean).join(" ");
+}
+
 export function calculateNights(checkIn?: string, checkOut?: string) {
   if (!checkIn || !checkOut) {
     return 0;
