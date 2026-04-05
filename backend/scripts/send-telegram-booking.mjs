@@ -2,12 +2,12 @@ import axios from "axios";
 import "dotenv/config";
 import { pathToFileURL } from "node:url";
 
-const botToken = process.env.BOT_TOKEN;
+const botToken = process.env.MANAGER_BOT_TOKEN || process.env.CUSTOMER_BOT_TOKEN || process.env.BOT_TOKEN;
 const chatId = process.env.CHAT_ID;
 
 function ensureConfig() {
   if (!botToken || !chatId) {
-    throw new Error("BOT_TOKEN va CHAT_ID muhit o'zgaruvchilari kerak.");
+    throw new Error("MANAGER_BOT_TOKEN/CUSTOMER_BOT_TOKEN va CHAT_ID muhit o'zgaruvchilari kerak.");
   }
 }
 
