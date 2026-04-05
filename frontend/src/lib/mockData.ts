@@ -97,6 +97,10 @@ export const mockSiteSettings: SiteSettings = {
     "Ravotsoy Dam olish Maskani mehmonlarga sokin muhit, keng hudud va sifatli hordiq tajribasini taqdim etadi. Oilaviy sayohat, do'stlar davrasi yoki qisqa kunlik dam olish uchun qulay yechimlar tayyorlangan.",
   hero_images: ["hero-1"],
   contact_people: [],
+  payment_card_number: "",
+  payment_card_holder: "",
+  payment_instructions: "",
+  payment_manager_telegram: "",
 };
 
 export const mockHomeSections: ContentSection[] = [

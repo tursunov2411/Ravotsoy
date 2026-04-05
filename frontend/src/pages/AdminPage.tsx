@@ -90,6 +90,10 @@ const emptySiteSettings: Omit<SiteSettings, "id"> = {
   about_text: "",
   hero_images: [],
   contact_people: [],
+  payment_card_number: "",
+  payment_card_holder: "",
+  payment_instructions: "",
+  payment_manager_telegram: "",
 };
 
 const sectionTypeOptions: Array<{ value: ContentSectionType; label: string }> = [
@@ -448,6 +452,10 @@ export function AdminPage() {
       about_text: settingsData.about_text ?? "",
       hero_images: settingsData.hero_images ?? [],
       contact_people: settingsData.contact_people ?? [],
+      payment_card_number: settingsData.payment_card_number ?? "",
+      payment_card_holder: settingsData.payment_card_holder ?? "",
+      payment_instructions: settingsData.payment_instructions ?? "",
+      payment_manager_telegram: settingsData.payment_manager_telegram ?? "",
     });
   };
 
@@ -552,6 +560,10 @@ export function AdminPage() {
       location_url: siteSettings.location_url.trim(),
       about_text: siteSettings.about_text?.trim() ?? "",
       hero_images: (siteSettings.hero_images ?? []).filter(Boolean),
+      payment_card_number: siteSettings.payment_card_number?.trim() ?? "",
+      payment_card_holder: siteSettings.payment_card_holder?.trim() ?? "",
+      payment_instructions: siteSettings.payment_instructions?.trim() ?? "",
+      payment_manager_telegram: siteSettings.payment_manager_telegram?.trim() ?? "",
       contact_people:
         siteSettings.contact_people?.map((item) => ({
           id: item.id,
@@ -569,6 +581,10 @@ export function AdminPage() {
       about_text: savedSettings.about_text ?? "",
       hero_images: savedSettings.hero_images ?? [],
       contact_people: savedSettings.contact_people ?? [],
+      payment_card_number: savedSettings.payment_card_number ?? "",
+      payment_card_holder: savedSettings.payment_card_holder ?? "",
+      payment_instructions: savedSettings.payment_instructions ?? "",
+      payment_manager_telegram: savedSettings.payment_manager_telegram ?? "",
     });
   };
 
@@ -1005,6 +1021,77 @@ export function AdminPage() {
                 className={textareaClassName()}
               />
             </label>
+
+            <div className="space-y-4 rounded-[28px] bg-pearl p-5 lg:col-span-2">
+              <div>
+                <p className="text-lg font-semibold text-ink">To'lov qabul qilish</p>
+                <p className="mt-1 text-sm leading-6 text-ink/58">
+                  Tashqi to'lov tizimisiz ishlash uchun shu yerga karta va menejer ma'lumotlarini kiriting.
+                </p>
+              </div>
+
+              <div className="grid gap-4 lg:grid-cols-2">
+                <label className="space-y-2 text-sm text-ink/70">
+                  <span>Karta raqami</span>
+                  <input
+                    value={siteSettings.payment_card_number ?? ""}
+                    onChange={(event) =>
+                      setSiteSettings((current) => ({
+                        ...current,
+                        payment_card_number: event.target.value,
+                      }))
+                    }
+                    className={inputClassName()}
+                    placeholder="8600 1234 5678 9012"
+                  />
+                </label>
+
+                <label className="space-y-2 text-sm text-ink/70">
+                  <span>Karta egasi</span>
+                  <input
+                    value={siteSettings.payment_card_holder ?? ""}
+                    onChange={(event) =>
+                      setSiteSettings((current) => ({
+                        ...current,
+                        payment_card_holder: event.target.value,
+                      }))
+                    }
+                    className={inputClassName()}
+                    placeholder="Sunnatilla Tursunov"
+                  />
+                </label>
+
+                <label className="space-y-2 text-sm text-ink/70">
+                  <span>To'lov menejeri Telegram</span>
+                  <input
+                    value={siteSettings.payment_manager_telegram ?? ""}
+                    onChange={(event) =>
+                      setSiteSettings((current) => ({
+                        ...current,
+                        payment_manager_telegram: event.target.value,
+                      }))
+                    }
+                    className={inputClassName()}
+                    placeholder="@manager_username"
+                  />
+                </label>
+
+                <label className="space-y-2 text-sm text-ink/70 lg:col-span-2">
+                  <span>To'lov ko'rsatmasi</span>
+                  <textarea
+                    value={siteSettings.payment_instructions ?? ""}
+                    onChange={(event) =>
+                      setSiteSettings((current) => ({
+                        ...current,
+                        payment_instructions: event.target.value,
+                      }))
+                    }
+                    className={textareaClassName()}
+                    placeholder="Pul o'tkazilgach, chekni menejerga Telegram orqali yuboring."
+                  />
+                </label>
+              </div>
+            </div>
 
             <div className="space-y-4 rounded-[28px] bg-pearl p-5 lg:col-span-2">
               <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">

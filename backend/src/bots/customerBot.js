@@ -1,4 +1,6 @@
-import { createSupabasePrivilegedClient, createSupabasePublicClient, createTelegramClient, formatAxiosError, readEnv } from "./shared.js";
+import { createSupabasePublicClient, createTelegramClient, formatAxiosError, readEnv } from "./shared.js";
+import { createBooking } from "../services/bookingEngine.js";
+import { notifyManagerAboutBooking } from "../services/managerNotifications.js";
 
 const BUTTONS = {
   packages: "\u{1F4E6} Paketlar",
@@ -171,6 +173,37 @@ function buildBookingSummary(data) {
   ].join("\n");
 }
 
+function buildPaymentMessage(result) {
+  const payment = result?.payment ?? {};
+  const lines = [
+    "✅ Bron yaratildi!",
+    `Bron ID: ${result?.bookingId ?? ""}`,
+    `To'lov summasi: ${formatPrice(result?.totalPrice ?? 0)} so'm`,
+  ];
+
+  if (payment.cardNumber) {
+    lines.push(`Karta raqami: ${payment.cardNumber}`);
+  }
+
+  if (payment.cardHolder) {
+    lines.push(`Karta egasi: ${payment.cardHolder}`);
+  }
+
+  if (payment.managerTelegram) {
+    lines.push(`To'lov bo'yicha menejer: @${payment.managerTelegram}`);
+  }
+
+  if (payment.instructions) {
+    lines.push("");
+    lines.push(payment.instructions);
+  } else {
+    lines.push("");
+    lines.push("To'lovni amalga oshirgach, chekni menejerga yuboring.");
+  }
+
+  return lines.join("\n");
+}
+
 function chunkItems(items, size) {
   const rows = [];
 
@@ -184,7 +217,6 @@ function chunkItems(items, size) {
 export function createCustomerBot() {
   const telegram = createTelegramClient(readEnv("CUSTOMER_BOT_TOKEN", "BOT_TOKEN"));
   const publicSupabase = createSupabasePublicClient();
-  const privilegedSupabase = createSupabasePrivilegedClient();
 
   async function fetchPackages() {
     const { data, error } = await publicSupabase
@@ -226,19 +258,14 @@ export function createCustomerBot() {
   }
 
   async function insertBooking(bookingData) {
-    const { data, error } = await privilegedSupabase.rpc("create_pending_booking_if_available", {
-      p_name: bookingData.name,
-      p_phone: bookingData.phone,
-      p_guests: bookingData.guests,
-      p_package_id: bookingData.package_id,
-      p_date_start: bookingData.date_start,
+    return createBooking({
+      package_id: bookingData.package_id,
+      name: bookingData.name,
+      phone: bookingData.phone,
+      guests: bookingData.guests,
+      date_start: bookingData.date_start,
+      source: "telegram",
     });
-
-    if (error) {
-      throw error;
-    }
-
-    return data ?? null;
   }
 
   async function getAvailableDates(packageId) {
@@ -558,9 +585,10 @@ export function createCustomerBot() {
 
       clearChatState(chatId);
       await answerCallbackQuerySafe(callbackQueryId, "So'rovingiz yuborildi.");
-      await telegram.sendMessage(chatId, "\u2705 So\u2018rovingiz yuborildi!", {
+      await telegram.sendMessage(chatId, buildPaymentMessage(bookingResult), {
         reply_markup: MAIN_KEYBOARD,
       });
+      await notifyManagerAboutBooking(bookingResult.booking);
     } catch (error) {
       console.error(`Customer booking insert failed: ${formatAxiosError(error)}`);
       await answerCallbackQuerySafe(callbackQueryId, "Xatolik yuz berdi.");

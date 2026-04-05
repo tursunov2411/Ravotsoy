@@ -2,9 +2,9 @@ import { CalendarDays, LoaderCircle, Mail, Phone, Send, Sparkles, Users } from "
 import { type FormEvent, useEffect, useMemo, useState } from "react";
 import { useLocation } from "react-router-dom";
 import { AnimatedSection } from "../components/AnimatedSection";
-import { createBooking, getSiteSettings, getPackages } from "../lib/api";
+import { createBooking, getSiteSettings, getPackages, quoteBooking } from "../lib/api";
 import { hasSupabaseConfig } from "../lib/supabase";
-import type { PackageRecord, SiteSettings } from "../lib/types";
+import type { BookingQuote, PackageRecord, PaymentConfig, SiteSettings } from "../lib/types";
 import { calculateNights, formatCurrency, todayIso } from "../lib/utils";
 
 const backendUrl = import.meta.env.VITE_BACKEND_URL?.replace(/\/$/, "") || "http://localhost:3001";
@@ -37,6 +37,8 @@ export function BookingPage() {
   const [error, setError] = useState("");
   const [successMessage, setSuccessMessage] = useState("");
   const [estimatedPrice, setEstimatedPrice] = useState(0);
+  const [quoteInfo, setQuoteInfo] = useState<BookingQuote | null>(null);
+  const [paymentDetails, setPaymentDetails] = useState<PaymentConfig | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [form, setForm] = useState<BookingForm>({
     packageId: "",
@@ -77,7 +79,7 @@ export function BookingPage() {
     "Paketni tanlang, sanani kiriting va bron so'rovingizni yuboring.";
   const nights = selectedPackage?.type === "stay" ? calculateNights(form.checkIn, form.checkOut) : 0;
 
-  const calculatePrice = () => {
+  const calculateLocalPrice = () => {
     if (!selectedPackage) {
       return 0;
     }
@@ -98,7 +100,65 @@ export function BookingPage() {
   };
 
   useEffect(() => {
-    setEstimatedPrice(calculatePrice());
+    setEstimatedPrice(calculateLocalPrice());
+  }, [form.checkIn, form.checkOut, form.dayDate, form.guests, nights, selectedPackage]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    const loadQuote = async () => {
+      if (!selectedPackage || isGuestCountInvalid) {
+        setQuoteInfo(null);
+        return;
+      }
+
+      const quotePayload =
+        selectedPackage.type === "stay"
+          ? form.checkIn && form.checkOut && nights > 0
+            ? {
+                package_id: selectedPackage.id,
+                guests: form.guests,
+                date_start: form.checkIn,
+                date_end: form.checkOut,
+              }
+            : null
+          : form.dayDate
+            ? {
+                package_id: selectedPackage.id,
+                guests: form.guests,
+                date_start: form.dayDate,
+                date_end: null,
+              }
+            : null;
+
+      if (!quotePayload || !hasSupabaseConfig) {
+        setQuoteInfo(null);
+        return;
+      }
+
+      try {
+        const result = await quoteBooking(quotePayload);
+
+        if (cancelled) {
+          return;
+        }
+
+        setQuoteInfo(result);
+        setEstimatedPrice(result.totalPrice);
+      } catch (quoteError) {
+        console.error(quoteError);
+
+        if (!cancelled) {
+          setQuoteInfo(null);
+        }
+      }
+    };
+
+    void loadQuote();
+
+    return () => {
+      cancelled = true;
+    };
   }, [form.checkIn, form.checkOut, form.dayDate, form.guests, nights, selectedPackage]);
 
   const isGuestCountInvalid = selectedPackage
@@ -109,6 +169,8 @@ export function BookingPage() {
     ? "Avval paketni tanlang."
     : isGuestCountInvalid
       ? `Mehmonlar soni 1 dan ${selectedPackage.max_guests} gacha bo'lishi kerak.`
+      : quoteInfo && !quoteInfo.available
+        ? "Tanlangan vaqt band. Boshqa sana tanlang."
       : selectedPackage.type === "stay"
         ? nights > 0
           ? `${nights} kecha uchun narx hisoblandi.`
@@ -152,6 +214,7 @@ export function BookingPage() {
     event.preventDefault();
     setError("");
     setSuccessMessage("");
+    setPaymentDetails(null);
 
     if (!selectedPackage) {
       setError("Avval paketni tanlang.");
@@ -183,6 +246,11 @@ export function BookingPage() {
       return;
     }
 
+    if (quoteInfo && !quoteInfo.available) {
+      setError("Tanlangan vaqt band. Iltimos boshqa sanani tanlang.");
+      return;
+    }
+
     const typeLabel = getTypeLabel(selectedPackage.type);
     const datesLabel =
       selectedPackage.type === "stay" ? `${form.checkIn} dan ${form.checkOut} gacha` : form.dayDate;
@@ -200,7 +268,7 @@ export function BookingPage() {
 
     try {
       setSubmitting(true);
-      await createBooking(bookingPayload);
+      const result = await createBooking(bookingPayload);
 
       if (!hasSupabaseConfig) {
         await sendToTelegram({
@@ -216,6 +284,9 @@ export function BookingPage() {
         });
       }
 
+      setEstimatedPrice(Number(result?.totalPrice ?? estimatedPrice));
+      setPaymentDetails(result?.payment ?? null);
+
       setForm({
         packageId: selectedPackage.id,
         customerName: "",
@@ -226,10 +297,11 @@ export function BookingPage() {
         checkOut: "",
         dayDate: todayIso(),
       });
-      setSuccessMessage("So'rov qabul qilindi. Menejerga yuborish jarayoni boshlandi.");
+      setQuoteInfo(null);
+      setSuccessMessage("Bron yaratildi. Endi to'lovni amalga oshirib, chekni menejerga yuboring.");
     } catch (submitError) {
       console.error(submitError);
-      setError("So'rovni yuborishda xatolik yuz berdi.");
+      setError(submitError instanceof Error ? submitError.message : "So'rovni yuborishda xatolik yuz berdi.");
     } finally {
       setSubmitting(false);
     }
@@ -479,6 +551,14 @@ export function BookingPage() {
             {successMessage ? (
               <div className="rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-700">
                 {successMessage}
+                {paymentDetails?.cardNumber ? (
+                  <div className="mt-3 space-y-1 text-left text-sm text-emerald-800">
+                    <p>Karta: {paymentDetails.cardNumber}</p>
+                    {paymentDetails.cardHolder ? <p>Karta egasi: {paymentDetails.cardHolder}</p> : null}
+                    {paymentDetails.managerTelegram ? <p>Menejer: @{paymentDetails.managerTelegram}</p> : null}
+                    {paymentDetails.instructions ? <p>{paymentDetails.instructions}</p> : null}
+                  </div>
+                ) : null}
               </div>
             ) : null}
 

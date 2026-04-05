@@ -3,6 +3,8 @@ import { createCustomerBot } from "./bots/customerBot.js";
 import { createManagerBot } from "./bots/managerBot.js";
 import { readOptionalEnv } from "./bots/shared.js";
 import { sendTelegramMessage } from "../scripts/send-telegram-booking.mjs";
+import { createBooking, getPaymentConfig, quoteBooking } from "./services/bookingEngine.js";
+import { notifyManagerAboutBooking } from "./services/managerNotifications.js";
 
 const DEFAULT_PORT = 3001;
 
@@ -39,6 +41,22 @@ function validateBooking(booking) {
   }
 
   return null;
+}
+
+function normalizeEnginePayload(payload) {
+  const record = payload ?? {};
+
+  return {
+    userId: record.userId ?? record.user_id ?? null,
+    packageId: record.packageId ?? record.package_id,
+    name: record.name,
+    phone: record.phone,
+    email: record.email ?? "",
+    peopleCount: record.peopleCount ?? record.people_count ?? record.guests,
+    startDate: record.startDate ?? record.date_start,
+    endDate: record.endDate ?? record.date_end ?? null,
+    source: record.source ?? "website",
+  };
 }
 
 export function createTelegramWebhookApp() {
@@ -122,6 +140,43 @@ export function createTelegramWebhookApp() {
     } catch (error) {
       const message = error instanceof Error ? error.message : "Noma'lum xatolik";
       res.status(500).json({ ok: false, error: message });
+    }
+  });
+
+  app.get("/api/payment-config", async (_req, res) => {
+    try {
+      const payment = await getPaymentConfig();
+      res.status(200).json({ ok: true, payment });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Noma'lum xatolik";
+      res.status(500).json({ ok: false, error: message });
+    }
+  });
+
+  app.post("/api/bookings/quote", async (req, res) => {
+    try {
+      const quote = await quoteBooking(normalizeEnginePayload(req.body));
+      res.status(200).json({ ok: true, ...quote });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Noma'lum xatolik";
+      res.status(400).json({ ok: false, error: message });
+    }
+  });
+
+  app.post("/api/bookings", async (req, res) => {
+    try {
+      const result = await createBooking(normalizeEnginePayload(req.body));
+
+      if (!result.success) {
+        res.status(409).json({ ok: false, ...result });
+        return;
+      }
+
+      await notifyManagerAboutBooking(result.booking);
+      res.status(200).json({ ok: true, ...result });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Noma'lum xatolik";
+      res.status(400).json({ ok: false, error: message });
     }
   });
 

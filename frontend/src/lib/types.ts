@@ -35,6 +35,23 @@ export type BookingRecord = {
   created_at?: string;
 };
 
+export type BookingQuote = {
+  available: boolean;
+  message: string;
+  totalPrice: number;
+  resourceType?: string;
+  startDate: string;
+  endDate?: string | null;
+};
+
+export type PaymentConfig = {
+  hotelName?: string;
+  cardNumber?: string;
+  cardHolder?: string;
+  instructions?: string;
+  managerTelegram?: string;
+};
+
 export type MediaKind = "hero" | "gallery" | "package";
 
 export type MediaAsset = {
@@ -104,4 +121,8 @@ export type SiteSettings = {
   about_text?: string | null;
   hero_images?: string[];
   contact_people?: PublicContact[];
+  payment_card_number?: string | null;
+  payment_card_holder?: string | null;
+  payment_instructions?: string | null;
+  payment_manager_telegram?: string | null;
 };

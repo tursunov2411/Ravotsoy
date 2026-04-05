@@ -3,17 +3,29 @@ import { mockBookings, mockGallery, mockHomeSections, mockPackages, mockSiteSett
 import { hasSupabaseConfig, supabase } from "./supabase";
 import type {
   BookingRecord,
+  BookingQuote,
   BookingStatus,
   ContentSection,
   ContentSectionType,
   MediaAsset,
   MediaKind,
+  PaymentConfig,
   PublicContact,
   PackageInput,
   PackageRecord,
   SightseeingPlace,
   SiteSettings,
 } from "./types";
+
+type BookingCreateResult = {
+  ok?: boolean;
+  success: boolean;
+  available?: boolean;
+  message?: string;
+  bookingId?: string;
+  totalPrice?: number;
+  payment?: PaymentConfig;
+};
 
 function ensureSupabase() {
   if (!supabase) {
@@ -25,6 +37,7 @@ function ensureSupabase() {
 
 const packageImagesBucket = "package-images";
 const defaultMediaBucket = "media";
+const backendUrl = import.meta.env.VITE_BACKEND_URL?.replace(/\/$/, "") || "http://localhost:3001";
 
 function parseContactPeople(value: unknown): PublicContact[] {
   if (!Array.isArray(value)) {
@@ -270,7 +283,9 @@ export async function getSiteSettings() {
   const client = ensureSupabase();
   const { data, error } = await client
     .from("site_settings")
-    .select("id, hotel_name, description, location_url, about_text, hero_images, contact_people")
+    .select(
+      "id, hotel_name, description, location_url, about_text, hero_images, contact_people, payment_card_number, payment_card_holder, payment_instructions, payment_manager_telegram",
+    )
     .eq("id", 1)
     .maybeSingle();
 
@@ -290,6 +305,10 @@ export async function getSiteSettings() {
     about_text: data.about_text ? String(data.about_text) : "",
     hero_images: parseHeroImages(data.hero_images),
     contact_people: parseContactPeople(data.contact_people),
+    payment_card_number: data.payment_card_number ? String(data.payment_card_number) : "",
+    payment_card_holder: data.payment_card_holder ? String(data.payment_card_holder) : "",
+    payment_instructions: data.payment_instructions ? String(data.payment_instructions) : "",
+    payment_manager_telegram: data.payment_manager_telegram ? String(data.payment_manager_telegram) : "",
   } satisfies SiteSettings;
 }
 
@@ -313,10 +332,16 @@ export async function upsertSiteSettings(payload: Omit<SiteSettings, "id">) {
         about_text: payload.about_text || null,
         hero_images: payload.hero_images ?? [],
         contact_people: payload.contact_people ?? [],
+        payment_card_number: payload.payment_card_number || null,
+        payment_card_holder: payload.payment_card_holder || null,
+        payment_instructions: payload.payment_instructions || null,
+        payment_manager_telegram: payload.payment_manager_telegram || null,
       },
       { onConflict: "id" },
     )
-    .select("id, hotel_name, description, location_url, about_text, hero_images, contact_people")
+    .select(
+      "id, hotel_name, description, location_url, about_text, hero_images, contact_people, payment_card_number, payment_card_holder, payment_instructions, payment_manager_telegram",
+    )
     .single();
 
   if (error) {
@@ -331,35 +356,78 @@ export async function upsertSiteSettings(payload: Omit<SiteSettings, "id">) {
     about_text: data.about_text ? String(data.about_text) : "",
     hero_images: parseHeroImages(data.hero_images),
     contact_people: parseContactPeople(data.contact_people),
+    payment_card_number: data.payment_card_number ? String(data.payment_card_number) : "",
+    payment_card_holder: data.payment_card_holder ? String(data.payment_card_holder) : "",
+    payment_instructions: data.payment_instructions ? String(data.payment_instructions) : "",
+    payment_manager_telegram: data.payment_manager_telegram ? String(data.payment_manager_telegram) : "",
   } satisfies SiteSettings;
 }
 
 export async function createBooking(payload: Omit<BookingRecord, "id" | "status" | "created_at">) {
   if (!hasSupabaseConfig) {
     return {
-      id: crypto.randomUUID(),
-      ...payload,
-      status: "pending" as const,
-    };
+      ok: true,
+      success: true,
+      available: true,
+      bookingId: crypto.randomUUID(),
+      totalPrice: payload.estimated_price,
+      payment: undefined,
+    } satisfies BookingCreateResult;
   }
 
-  const client = ensureSupabase();
-  const { error } = await client
-    .from("bookings")
-    .insert({
-      package_id: payload.package_id,
+  const response = await fetch(`${backendUrl}/api/bookings`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      packageId: payload.package_id,
       name: payload.name,
       phone: payload.phone,
       email: payload.email,
-      guests: payload.guests,
-      date_start: payload.date_start,
-      date_end: payload.date_end,
-      estimated_price: payload.estimated_price,
-    });
+      peopleCount: payload.guests,
+      startDate: payload.date_start,
+      endDate: payload.date_end,
+      source: "website",
+    }),
+  });
 
-  if (error) {
-    throw error;
+  const result = (await response.json()) as BookingCreateResult & { error?: string };
+
+  if (!response.ok || !result.ok) {
+    throw new Error(result.error || result.message || "Bron yaratib bo'lmadi.");
   }
+
+  return result;
+}
+
+export async function quoteBooking(payload: {
+  package_id: string;
+  guests: number;
+  date_start: string;
+  date_end?: string | null;
+}) {
+  const response = await fetch(`${backendUrl}/api/bookings/quote`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      packageId: payload.package_id,
+      peopleCount: payload.guests,
+      startDate: payload.date_start,
+      endDate: payload.date_end ?? null,
+      source: "website",
+    }),
+  });
+
+  const result = (await response.json()) as { ok?: boolean; error?: string } & BookingQuote;
+
+  if (!response.ok || !result.ok) {
+    throw new Error(result.error || "Narxni hisoblab bo'lmadi.");
+  }
+
+  return result;
 }
 
 export async function getAdminBookings() {
