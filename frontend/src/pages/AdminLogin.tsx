@@ -1,4 +1,4 @@
-import { LoaderCircle, Shield } from "lucide-react";
+import { LoaderCircle, LockKeyhole, Mail, Shield } from "lucide-react";
 import { type FormEvent, useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { AnimatedSection } from "../components/AnimatedSection";
@@ -78,54 +78,89 @@ export function AdminLogin() {
   }
 
   return (
-    <div className="mx-auto max-w-5xl px-4 py-10 sm:px-6 lg:px-8">
-      <AnimatedSection className="grid gap-8 lg:grid-cols-[0.95fr_1.05fr]">
-        <div className="rounded-[36px] border border-black/5 bg-white p-8 shadow-soft">
-          <div className="inline-flex rounded-full bg-pearl p-3 text-ink">
-            <Shield size={22} />
+    <div className="mx-auto max-w-6xl px-4 py-10 sm:px-6 lg:px-8">
+      <AnimatedSection className="grid gap-8 lg:grid-cols-[1fr_0.95fr]">
+        <div className="rounded-[40px] bg-[#07111f] px-6 py-8 text-white shadow-[0_24px_80px_rgba(15,23,42,0.18)] sm:px-8 lg:px-10">
+          <div className="relative overflow-hidden rounded-[32px] border border-white/10 bg-[linear-gradient(135deg,#09111f_0%,#0d1b33_48%,#143261_100%)] p-8">
+            <div className="absolute inset-0 bg-[linear-gradient(to_right,#ffffff10_1px,transparent_1px),linear-gradient(to_bottom,#ffffff08_1px,transparent_1px)] bg-[size:66px_66px]" />
+            <div className="absolute left-[-10%] top-[-18%] h-72 w-72 rounded-full bg-sky-500/20 blur-3xl" />
+            <div className="absolute bottom-[-22%] right-[-10%] h-72 w-72 rounded-full bg-blue-500/16 blur-3xl" />
+
+            <div className="relative z-10">
+              <div className="inline-flex rounded-full border border-white/12 bg-white/8 p-3 text-white">
+                <Shield size={22} />
+              </div>
+              <p className="mt-6 text-xs uppercase tracking-[0.3em] text-white/50">Admin kirish</p>
+              <h1 className="mt-3 text-4xl font-semibold tracking-tight sm:text-5xl">
+                Boshqaruv paneliga xavfsiz kiring
+              </h1>
+              <p className="mt-4 max-w-xl text-sm leading-8 text-white/72 sm:text-base">
+                Bu sahifa faqat administrator uchun. Kirgandan so'ng bronlar, paketlar va media
+                bo'limlari bilan to'liq ishlashingiz mumkin bo'ladi.
+              </p>
+
+              <div className="mt-8 grid gap-4 sm:grid-cols-2">
+                <div className="rounded-[28px] border border-white/10 bg-white/8 p-5">
+                  <p className="text-xs uppercase tracking-[0.24em] text-white/45">Nazorat</p>
+                  <p className="mt-2 text-lg font-semibold">Bronlar va holatlar</p>
+                </div>
+                <div className="rounded-[28px] border border-white/10 bg-white/8 p-5">
+                  <p className="text-xs uppercase tracking-[0.24em] text-white/45">Boshqaruv</p>
+                  <p className="mt-2 text-lg font-semibold">Paketlar va media</p>
+                </div>
+              </div>
+            </div>
           </div>
-          <p className="mt-6 text-xs uppercase tracking-[0.3em] text-ink/35">Admin kirish</p>
-          <h1 className="mt-3 text-4xl font-semibold tracking-tight">Boshqaruv paneliga kiring</h1>
-          <p className="mt-4 text-sm leading-7 text-ink/65">
-            Bu sahifa faqat administrator uchun. Kirgandan so'ng bronlar, paketlar va media
-            fayllarni boshqarish mumkin bo'ladi.
-          </p>
         </div>
 
         <AnimatedSection className="rounded-[36px] border border-black/5 bg-white p-8 shadow-soft">
+          <div className="mb-6">
+            <p className="text-xs uppercase tracking-[0.28em] text-ink/35">Kirish ma'lumotlari</p>
+            <h2 className="mt-3 text-3xl font-semibold tracking-tight text-ink">Admin akkauntiga kiring</h2>
+            <p className="mt-3 text-sm leading-7 text-ink/60">
+              Email va parolni kiriting. Muvaffaqiyatli kirgach siz to'g'ridan-to'g'ri admin panelga o'tasiz.
+            </p>
+          </div>
+
           <form className="space-y-5" onSubmit={handleSubmit}>
             <label className="space-y-2 text-sm text-ink/70">
               <span>Email</span>
-              <input
-                type="email"
-                required
-                value={form.email}
-                onChange={(event) =>
-                  setForm((current) => ({
-                    ...current,
-                    email: event.target.value,
-                  }))
-                }
-                className="w-full rounded-2xl border border-black/10 bg-pearl px-4 py-3 outline-none transition focus:border-pine"
-                placeholder="admin@example.com"
-              />
+              <div className="flex items-center gap-3 rounded-2xl border border-black/10 bg-pearl px-4 py-3 transition focus-within:border-pine">
+                <Mail size={18} className="text-ink/35" />
+                <input
+                  type="email"
+                  required
+                  value={form.email}
+                  onChange={(event) =>
+                    setForm((current) => ({
+                      ...current,
+                      email: event.target.value,
+                    }))
+                  }
+                  className="w-full bg-transparent outline-none"
+                  placeholder="admin@example.com"
+                />
+              </div>
             </label>
 
             <label className="space-y-2 text-sm text-ink/70">
               <span>Parol</span>
-              <input
-                type="password"
-                required
-                value={form.password}
-                onChange={(event) =>
-                  setForm((current) => ({
-                    ...current,
-                    password: event.target.value,
-                  }))
-                }
-                className="w-full rounded-2xl border border-black/10 bg-pearl px-4 py-3 outline-none transition focus:border-pine"
-                placeholder="Parolingizni kiriting"
-              />
+              <div className="flex items-center gap-3 rounded-2xl border border-black/10 bg-pearl px-4 py-3 transition focus-within:border-pine">
+                <LockKeyhole size={18} className="text-ink/35" />
+                <input
+                  type="password"
+                  required
+                  value={form.password}
+                  onChange={(event) =>
+                    setForm((current) => ({
+                      ...current,
+                      password: event.target.value,
+                    }))
+                  }
+                  className="w-full bg-transparent outline-none"
+                  placeholder="Parolingizni kiriting"
+                />
+              </div>
             </label>
 
             {error ? (

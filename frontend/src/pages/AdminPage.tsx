@@ -1,14 +1,20 @@
 import type { Session } from "@supabase/supabase-js";
 import {
+  Boxes,
+  CalendarRange,
   Check,
   Clock3,
+  Image as ImageIcon,
   LoaderCircle,
   LogOut,
+  Pencil,
+  ShieldCheck,
   Trash2,
   Upload,
   X,
 } from "lucide-react";
-import { type FormEvent, useEffect, useState } from "react";
+import { type FormEvent, type ReactNode, useEffect, useMemo, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import {
   deleteBooking,
   deletePackage,
@@ -24,7 +30,6 @@ import {
   upsertPackage,
 } from "../lib/api";
 import { hasSupabaseConfig } from "../lib/supabase";
-import { useNavigate } from "react-router-dom";
 import type {
   BookingRecord,
   MediaAsset,
@@ -32,7 +37,7 @@ import type {
   PackageInput,
   PackageRecord,
 } from "../lib/types";
-import { formatCurrency, isVideoUrl } from "../lib/utils";
+import { cn, formatCurrency, isVideoUrl } from "../lib/utils";
 
 const emptyPackage: PackageInput = {
   name: "",
@@ -57,14 +62,68 @@ function statusLabel(status: BookingRecord["status"]) {
 
 function statusClass(status: BookingRecord["status"]) {
   if (status === "approved") {
-    return "bg-emerald-50 text-emerald-700 border-emerald-200";
+    return "border-emerald-300/40 bg-emerald-500/12 text-emerald-100";
   }
 
   if (status === "rejected") {
-    return "bg-red-50 text-red-700 border-red-200";
+    return "border-red-300/40 bg-red-500/12 text-red-100";
   }
 
-  return "bg-amber-50 text-amber-700 border-amber-200";
+  return "border-amber-300/40 bg-amber-500/12 text-amber-100";
+}
+
+function packageTypeLabel(type: PackageRecord["type"]) {
+  return type === "stay" ? "Tunab qolish" : "Kunlik dam olish";
+}
+
+function formatBookingDates(booking: BookingRecord) {
+  return booking.date_end ? `${booking.date_start} - ${booking.date_end}` : booking.date_start;
+}
+
+type StatCardProps = {
+  icon: ReactNode;
+  label: string;
+  value: string | number;
+  hint: string;
+};
+
+function StatCard({ icon, label, value, hint }: StatCardProps) {
+  return (
+    <div className="rounded-[28px] border border-white/10 bg-white/6 p-5 backdrop-blur-xl">
+      <div className="inline-flex rounded-2xl border border-white/10 bg-white/10 p-3 text-white/90">
+        {icon}
+      </div>
+      <p className="mt-4 text-xs uppercase tracking-[0.24em] text-white/45">{label}</p>
+      <p className="mt-2 text-3xl font-semibold tracking-tight text-white">{value}</p>
+      <p className="mt-2 text-sm leading-6 text-white/62">{hint}</p>
+    </div>
+  );
+}
+
+type SectionCardProps = {
+  title: string;
+  description?: string;
+  action?: ReactNode;
+  children: ReactNode;
+};
+
+function SectionCard({ title, description, action, children }: SectionCardProps) {
+  return (
+    <section className="rounded-[32px] border border-black/5 bg-white p-6 shadow-soft sm:p-7">
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+        <div>
+          <h2 className="text-2xl font-semibold tracking-tight text-ink">{title}</h2>
+          {description ? <p className="mt-2 text-sm leading-7 text-ink/60">{description}</p> : null}
+        </div>
+        {action}
+      </div>
+      <div className="mt-6">{children}</div>
+    </section>
+  );
+}
+
+function inputClassName() {
+  return "w-full rounded-2xl border border-black/10 bg-pearl px-4 py-3 outline-none transition focus:border-pine";
 }
 
 export function AdminPage() {
@@ -233,9 +292,11 @@ export function AdminPage() {
   };
 
   const pendingCount = bookings.filter((booking) => booking.status === "pending").length;
+  const approvedCount = bookings.filter((booking) => booking.status === "approved").length;
   const heroMedia = media.filter((item) => item.type === "hero");
   const galleryMedia = media.filter((item) => item.type === "gallery");
   const packageMedia = media.filter((item) => item.type === "package");
+  const recentBookings = useMemo(() => bookings.slice(0, 6), [bookings]);
 
   if (!hasSupabaseConfig) {
     return (
@@ -274,49 +335,57 @@ export function AdminPage() {
 
   return (
     <div className="mx-auto max-w-7xl px-4 py-10 sm:px-6 lg:px-8">
-      <div className="rounded-[36px] border border-black/5 bg-white p-8 shadow-soft">
-        <div className="flex flex-col gap-5 lg:flex-row lg:items-center lg:justify-between">
-          <div>
-            <p className="text-xs uppercase tracking-[0.3em] text-ink/35">Admin dashboard</p>
-            <h1 className="mt-3 text-4xl font-semibold tracking-tight">
-              Paketlar, bronlar va media boshqaruvi
-            </h1>
-            <p className="mt-3 text-sm leading-7 text-ink/65">
-              Bu panel orqali paket yaratish, bronlar holatini yangilash va hero,
-              galereya hamda paket rasmlarini yuklash mumkin.
-            </p>
-          </div>
+      <section className="rounded-[40px] bg-[#07111f] px-6 py-8 text-white shadow-[0_24px_80px_rgba(15,23,42,0.18)] sm:px-8 lg:px-10">
+        <div className="relative overflow-hidden rounded-[32px] border border-white/10 bg-[linear-gradient(135deg,#09111f_0%,#0d1b33_48%,#143261_100%)] p-8">
+          <div className="absolute inset-0 bg-[linear-gradient(to_right,#ffffff10_1px,transparent_1px),linear-gradient(to_bottom,#ffffff08_1px,transparent_1px)] bg-[size:66px_66px]" />
+          <div className="absolute left-[-8%] top-[-18%] h-72 w-72 rounded-full bg-sky-500/20 blur-3xl" />
+          <div className="absolute bottom-[-20%] right-[-8%] h-72 w-72 rounded-full bg-blue-500/16 blur-3xl" />
 
-          <button
-            type="button"
-            onClick={() =>
-              void (async () => {
-                await signOutAdmin();
-                navigate("/admin-login", { replace: true });
-              })()
-            }
-            className="inline-flex items-center justify-center gap-2 rounded-full border border-black/10 px-5 py-3 text-sm font-medium text-ink"
-          >
-            <LogOut size={16} />
-            Chiqish
-          </button>
-        </div>
+          <div className="relative z-10 flex flex-col gap-8">
+            <div className="flex flex-col gap-5 lg:flex-row lg:items-start lg:justify-between">
+              <div className="max-w-3xl">
+                <div className="inline-flex items-center gap-2 rounded-full border border-white/12 bg-white/8 px-4 py-2 text-xs uppercase tracking-[0.3em] text-white/72">
+                  <ShieldCheck size={16} />
+                  Admin panel
+                </div>
+                <h1 className="mt-5 text-4xl font-semibold tracking-tight sm:text-5xl">
+                  Paketlar, bronlar va media boshqaruvi
+                </h1>
+                <p className="mt-4 text-sm leading-8 text-white/72 sm:text-base">
+                  Shu panel orqali yangi paket yaratish, kelgan bronlarni tasdiqlash yoki rad
+                  etish, shuningdek hero, galereya va paket rasmlarini boshqarish mumkin.
+                </p>
+              </div>
 
-        <div className="mt-8 grid gap-4 md:grid-cols-3">
-          <div className="rounded-[28px] bg-pearl p-5">
-            <p className="text-xs uppercase tracking-[0.24em] text-ink/35">Paketlar</p>
-            <p className="mt-3 text-3xl font-semibold">{packages.length}</p>
-          </div>
-          <div className="rounded-[28px] bg-pearl p-5">
-            <p className="text-xs uppercase tracking-[0.24em] text-ink/35">Kutilayotgan bronlar</p>
-            <p className="mt-3 text-3xl font-semibold">{pendingCount}</p>
-          </div>
-          <div className="rounded-[28px] bg-pearl p-5">
-            <p className="text-xs uppercase tracking-[0.24em] text-ink/35">Jami media</p>
-            <p className="mt-3 text-3xl font-semibold">{media.length}</p>
+              <div className="flex flex-col gap-3 sm:flex-row lg:flex-col lg:items-end">
+                <div className="rounded-2xl border border-white/10 bg-white/8 px-4 py-3 text-sm text-white/75">
+                  {session.user.email ?? "Admin foydalanuvchi"}
+                </div>
+                <button
+                  type="button"
+                  onClick={() =>
+                    void (async () => {
+                      await signOutAdmin();
+                      navigate("/admin-login", { replace: true });
+                    })()
+                  }
+                  className="inline-flex items-center justify-center gap-2 rounded-full border border-white/14 px-5 py-3 text-sm font-medium text-white transition hover:bg-white/10"
+                >
+                  <LogOut size={16} />
+                  Chiqish
+                </button>
+              </div>
+            </div>
+
+            <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+              <StatCard icon={<Boxes size={20} />} label="Paketlar" value={packages.length} hint="Faol paketlar soni" />
+              <StatCard icon={<Clock3 size={20} />} label="Kutilmoqda" value={pendingCount} hint="Javob kutayotgan bronlar" />
+              <StatCard icon={<Check size={20} />} label="Tasdiqlangan" value={approvedCount} hint="Tasdiqlangan bronlar" />
+              <StatCard icon={<ImageIcon size={20} />} label="Media" value={media.length} hint="Jami yuklangan fayllar" />
+            </div>
           </div>
         </div>
-      </div>
+      </section>
 
       {notice ? (
         <div className="mt-6 rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-700">
@@ -330,13 +399,12 @@ export function AdminPage() {
         </div>
       ) : null}
 
-      <div className="mt-6 grid gap-6 xl:grid-cols-[0.95fr_1.05fr]">
-        <section className="rounded-[32px] border border-black/5 bg-white p-6 shadow-soft">
-          <div className="flex items-center justify-between gap-4">
-            <h2 className="text-2xl font-semibold tracking-tight">
-              {editingPackageId ? "Paketni tahrirlash" : "Paket yaratish"}
-            </h2>
-            {editingPackageId ? (
+      <div className="mt-6 grid gap-6 2xl:grid-cols-[1.02fr_0.98fr]">
+        <SectionCard
+          title={editingPackageId ? "Paketni tahrirlash" : "Yangi paket yaratish"}
+          description="Paket ma'lumotlarini kiriting, kerak bo'lsa darhol asosiy rasm ham yuklang."
+          action={
+            editingPackageId ? (
               <button
                 type="button"
                 onClick={() => {
@@ -344,21 +412,21 @@ export function AdminPage() {
                   setPackageForm(emptyPackage);
                   setPackageImageFile(null);
                 }}
-                className="rounded-full border border-black/10 px-4 py-2 text-sm font-medium text-ink"
+                className="rounded-full border border-black/10 px-4 py-2 text-sm font-medium text-ink transition hover:bg-pearl"
               >
                 Bekor qilish
               </button>
-            ) : null}
-          </div>
-
-          <form className="mt-5 space-y-4" onSubmit={handlePackageSubmit}>
+            ) : null
+          }
+        >
+          <form className="grid gap-4" onSubmit={handlePackageSubmit}>
             <label className="space-y-2 text-sm text-ink/70">
               <span>Nomi</span>
               <input
                 required
                 value={packageForm.name}
                 onChange={(event) => setPackageForm((current) => ({ ...current, name: event.target.value }))}
-                className="w-full rounded-2xl border border-black/10 bg-pearl px-4 py-3 outline-none transition focus:border-pine"
+                className={inputClassName()}
               />
             </label>
 
@@ -371,7 +439,7 @@ export function AdminPage() {
                 onChange={(event) =>
                   setPackageForm((current) => ({ ...current, description: event.target.value }))
                 }
-                className="w-full rounded-2xl border border-black/10 bg-pearl px-4 py-3 outline-none transition focus:border-pine"
+                className={inputClassName()}
               />
             </label>
 
@@ -386,7 +454,7 @@ export function AdminPage() {
                       type: event.target.value as PackageRecord["type"],
                     }))
                   }
-                  className="w-full rounded-2xl border border-black/10 bg-pearl px-4 py-3 outline-none transition focus:border-pine"
+                  className={inputClassName()}
                 >
                   <option value="stay">Tunab qolish</option>
                   <option value="day">Kunlik dam olish</option>
@@ -406,14 +474,14 @@ export function AdminPage() {
                       max_guests: Number(event.target.value),
                     }))
                   }
-                  className="w-full rounded-2xl border border-black/10 bg-pearl px-4 py-3 outline-none transition focus:border-pine"
+                  className={inputClassName()}
                 />
               </label>
             </div>
 
             <div className="grid gap-4 sm:grid-cols-2">
               <label className="space-y-2 text-sm text-ink/70">
-                <span>Narx</span>
+                <span>Asosiy narx</span>
                 <input
                   type="number"
                   min={0}
@@ -425,7 +493,7 @@ export function AdminPage() {
                       base_price: Number(event.target.value),
                     }))
                   }
-                  className="w-full rounded-2xl border border-black/10 bg-pearl px-4 py-3 outline-none transition focus:border-pine"
+                  className={inputClassName()}
                 />
               </label>
 
@@ -442,7 +510,7 @@ export function AdminPage() {
                       price_per_guest: Number(event.target.value),
                     }))
                   }
-                  className="w-full rounded-2xl border border-black/10 bg-pearl px-4 py-3 outline-none transition focus:border-pine"
+                  className={inputClassName()}
                 />
               </label>
             </div>
@@ -453,9 +521,9 @@ export function AdminPage() {
                 type="file"
                 accept="image/*"
                 onChange={(event) => setPackageImageFile(event.target.files?.[0] ?? null)}
-                className="w-full rounded-2xl border border-black/10 bg-pearl px-4 py-3"
+                className={inputClassName()}
               />
-              <p className="text-xs text-ink/50">
+              <p className="text-xs leading-5 text-ink/45">
                 Rasm tanlansa, u `package-images` storage bucket ichiga yuklanadi.
               </p>
             </label>
@@ -463,161 +531,244 @@ export function AdminPage() {
             <button
               type="submit"
               disabled={working}
-              className="inline-flex items-center justify-center rounded-full bg-ink px-5 py-3 text-sm font-medium text-white transition hover:bg-pine disabled:cursor-not-allowed disabled:bg-ink/60"
+              className="inline-flex items-center justify-center gap-2 rounded-full bg-ink px-5 py-3 text-sm font-medium text-white transition hover:bg-pine disabled:cursor-not-allowed disabled:bg-ink/60"
             >
+              {working ? <LoaderCircle className="animate-spin" size={16} /> : null}
               {editingPackageId ? "O'zgarishlarni saqlash" : "Paket yaratish"}
             </button>
           </form>
-        </section>
+        </SectionCard>
 
-        <section className="rounded-[32px] border border-black/5 bg-white p-6 shadow-soft">
-          <h2 className="text-2xl font-semibold tracking-tight">Paketlar</h2>
-          <div className="mt-5 overflow-x-auto">
-            <table className="min-w-full text-left text-sm">
-              <thead>
-                <tr className="border-b border-black/5 text-ink/45">
-                  <th className="px-3 py-3 font-medium">Nomi</th>
-                  <th className="px-3 py-3 font-medium">Turi</th>
-                  <th className="px-3 py-3 font-medium">Narx</th>
-                  <th className="px-3 py-3 font-medium">Mehmon narxi</th>
-                  <th className="px-3 py-3 font-medium">Maksimal</th>
-                  <th className="px-3 py-3 font-medium">Amallar</th>
-                </tr>
-              </thead>
-              <tbody>
-                {packages.map((item) => (
-                  <tr key={item.id} className="border-b border-black/5 align-top">
-                    <td className="px-3 py-4">
-                      <p className="font-medium text-ink">{item.name}</p>
-                      <p className="mt-1 max-w-xs text-xs leading-5 text-ink/55">{item.description}</p>
-                    </td>
-                    <td className="px-3 py-4 text-ink/70">
-                      {item.type === "stay" ? "Tunab qolish" : "Kunlik dam olish"}
-                    </td>
-                    <td className="px-3 py-4 text-ink/70">{formatCurrency(item.base_price)}</td>
-                    <td className="px-3 py-4 text-ink/70">{formatCurrency(item.price_per_guest)}</td>
-                    <td className="px-3 py-4 text-ink/70">{item.max_guests} kishi</td>
-                    <td className="px-3 py-4">
-                      <div className="flex flex-wrap gap-2">
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setEditingPackageId(item.id);
-                            setPackageForm({
-                              name: item.name,
-                              description: item.description,
-                              type: item.type,
-                              base_price: item.base_price,
-                              price_per_guest: item.price_per_guest,
-                              max_guests: item.max_guests,
-                            });
-                          }}
-                          className="rounded-full border border-black/10 px-3 py-2 text-xs font-medium text-ink"
-                        >
-                          Tahrirlash
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => void runAction(() => deletePackage(item.id), "Paket o'chirildi.")}
-                          className="rounded-full border border-red-200 px-3 py-2 text-xs font-medium text-red-700"
-                        >
-                          O'chirish
-                        </button>
-                      </div>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+        <SectionCard
+          title="Paketlar ro'yxati"
+          description="Mavjud paketlarni tez ko'ring, tahrirlang yoki o'chiring."
+        >
+          <div className="grid gap-4">
+            {packages.map((item) => (
+              <div
+                key={item.id}
+                className="rounded-[28px] border border-black/6 bg-gradient-to-br from-white to-pearl/70 p-5"
+              >
+                <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+                  <div className="min-w-0">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <h3 className="text-lg font-semibold text-ink">{item.name}</h3>
+                      <span className="rounded-full bg-pearl px-3 py-1 text-xs font-medium text-ink/70">
+                        {packageTypeLabel(item.type)}
+                      </span>
+                    </div>
+                    <p className="mt-2 text-sm leading-6 text-ink/58">{item.description}</p>
+                  </div>
+
+                  <div className="flex flex-wrap gap-2">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setEditingPackageId(item.id);
+                        setPackageForm({
+                          name: item.name,
+                          description: item.description,
+                          type: item.type,
+                          base_price: item.base_price,
+                          price_per_guest: item.price_per_guest,
+                          max_guests: item.max_guests,
+                        });
+                      }}
+                      className="inline-flex items-center gap-2 rounded-full border border-black/10 px-4 py-2 text-sm font-medium text-ink transition hover:bg-white"
+                    >
+                      <Pencil size={14} />
+                      Tahrirlash
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => void runAction(() => deletePackage(item.id), "Paket o'chirildi.")}
+                      className="inline-flex items-center gap-2 rounded-full border border-red-200 px-4 py-2 text-sm font-medium text-red-700 transition hover:bg-red-50"
+                    >
+                      <Trash2 size={14} />
+                      O'chirish
+                    </button>
+                  </div>
+                </div>
+
+                <div className="mt-4 grid gap-3 sm:grid-cols-3">
+                  <div className="rounded-2xl bg-white/80 p-4">
+                    <p className="text-xs uppercase tracking-[0.2em] text-ink/40">Asosiy narx</p>
+                    <p className="mt-2 text-base font-semibold text-ink">{formatCurrency(item.base_price)}</p>
+                  </div>
+                  <div className="rounded-2xl bg-white/80 p-4">
+                    <p className="text-xs uppercase tracking-[0.2em] text-ink/40">Mehmon narxi</p>
+                    <p className="mt-2 text-base font-semibold text-ink">{formatCurrency(item.price_per_guest)}</p>
+                  </div>
+                  <div className="rounded-2xl bg-white/80 p-4">
+                    <p className="text-xs uppercase tracking-[0.2em] text-ink/40">Maksimal sig'im</p>
+                    <p className="mt-2 text-base font-semibold text-ink">{item.max_guests} kishi</p>
+                  </div>
+                </div>
+              </div>
+            ))}
+
+            {packages.length === 0 ? (
+              <div className="rounded-[28px] border border-dashed border-black/10 bg-pearl/60 p-8 text-sm text-ink/55">
+                Hozircha birorta paket yaratilmagan.
+              </div>
+            ) : null}
           </div>
-        </section>
+        </SectionCard>
       </div>
 
-      <section className="mt-6 rounded-[32px] border border-black/5 bg-white p-6 shadow-soft">
-        <div className="mb-5 flex items-center justify-between gap-4">
-          <h2 className="text-2xl font-semibold tracking-tight">Bronlar</h2>
-          <div className="inline-flex items-center gap-2 rounded-full bg-pearl px-4 py-2 text-sm text-ink/65">
-            <Clock3 size={16} />
-            {pendingCount} ta kutilayotgan bron
-          </div>
-        </div>
-
-        <div className="overflow-x-auto">
-          <table className="min-w-full text-left text-sm">
-            <thead>
-              <tr className="border-b border-black/5 text-ink/45">
-                <th className="px-3 py-3 font-medium">Ism</th>
-                <th className="px-3 py-3 font-medium">Telefon</th>
-                <th className="px-3 py-3 font-medium">Mehmonlar</th>
-                <th className="px-3 py-3 font-medium">Sanalar</th>
-                <th className="px-3 py-3 font-medium">Paket</th>
-                <th className="px-3 py-3 font-medium">Narx</th>
-                <th className="px-3 py-3 font-medium">Holat</th>
-                <th className="px-3 py-3 font-medium">Amallar</th>
-              </tr>
-            </thead>
-            <tbody>
-              {bookings.map((booking) => (
-                <tr key={booking.id} className="border-b border-black/5 align-top">
-                  <td className="px-3 py-4 font-medium text-ink">{booking.name}</td>
-                  <td className="px-3 py-4 text-ink/70">{booking.phone}</td>
-                  <td className="px-3 py-4 text-ink/70">{booking.guests} kishi</td>
-                  <td className="px-3 py-4 text-ink/70">
-                    {booking.date_start}
-                    {booking.date_end ? ` - ${booking.date_end}` : ""}
-                  </td>
-                  <td className="px-3 py-4 text-ink/70">{booking.package_name || booking.package_id}</td>
-                  <td className="px-3 py-4 text-ink/70">{formatCurrency(booking.estimated_price)}</td>
-                  <td className="px-3 py-4">
-                    <span className={`inline-flex rounded-full border px-3 py-1 text-xs font-medium ${statusClass(booking.status)}`}>
-                      {statusLabel(booking.status)}
-                    </span>
-                  </td>
-                  <td className="px-3 py-4">
-                    <div className="flex flex-wrap gap-2">
-                      <button
-                        type="button"
-                        onClick={() =>
-                          void runAction(() => updateBookingStatus(booking.id, "approved"), "Bron tasdiqlandi.")
-                        }
-                        className="inline-flex items-center gap-1 rounded-full border border-emerald-200 px-3 py-2 text-xs font-medium text-emerald-700"
+      <div className="mt-6 grid gap-6 xl:grid-cols-[1.08fr_0.92fr]">
+        <SectionCard
+          title="Bronlar"
+          description="Kelgan so'rovlarni ko'rib chiqing va ularning holatini yangilang."
+          action={
+            <div className="inline-flex items-center gap-2 rounded-full bg-pearl px-4 py-2 text-sm text-ink/65">
+              <Clock3 size={16} />
+              {pendingCount} ta kutilayotgan bron
+            </div>
+          }
+        >
+          <div className="grid gap-4">
+            {bookings.map((booking) => (
+              <div
+                key={booking.id}
+                className="rounded-[28px] border border-black/6 bg-gradient-to-br from-white to-pearl/70 p-5"
+              >
+                <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+                  <div className="min-w-0">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <h3 className="text-lg font-semibold text-ink">{booking.name}</h3>
+                      <span
+                        className={cn(
+                          "inline-flex rounded-full border px-3 py-1 text-xs font-medium",
+                          statusClass(booking.status),
+                        )}
                       >
-                        <Check size={14} />
-                        Tasdiqlash
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() =>
-                          void runAction(() => updateBookingStatus(booking.id, "rejected"), "Bron rad etildi.")
-                        }
-                        className="inline-flex items-center gap-1 rounded-full border border-amber-200 px-3 py-2 text-xs font-medium text-amber-700"
-                      >
-                        <X size={14} />
-                        Rad etish
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => void runAction(() => deleteBooking(booking.id), "Bron o'chirildi.")}
-                        className="inline-flex items-center gap-1 rounded-full border border-red-200 px-3 py-2 text-xs font-medium text-red-700"
-                      >
-                        <Trash2 size={14} />
-                        O'chirish
-                      </button>
+                        {statusLabel(booking.status)}
+                      </span>
                     </div>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      </section>
 
-      <div className="mt-6 grid gap-6 xl:grid-cols-[0.9fr_1.1fr]">
-        <section className="rounded-[32px] border border-black/5 bg-white p-6 shadow-soft">
-          <h2 className="text-2xl font-semibold tracking-tight">Media yuklash</h2>
+                    <div className="mt-3 grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+                      <div className="rounded-2xl bg-white/85 p-4">
+                        <p className="text-xs uppercase tracking-[0.2em] text-ink/40">Telefon</p>
+                        <p className="mt-2 text-sm font-medium text-ink">{booking.phone}</p>
+                      </div>
+                      <div className="rounded-2xl bg-white/85 p-4">
+                        <p className="text-xs uppercase tracking-[0.2em] text-ink/40">Paket</p>
+                        <p className="mt-2 text-sm font-medium text-ink">
+                          {booking.package_name || booking.package_id}
+                        </p>
+                      </div>
+                      <div className="rounded-2xl bg-white/85 p-4">
+                        <p className="text-xs uppercase tracking-[0.2em] text-ink/40">Narx</p>
+                        <p className="mt-2 text-sm font-medium text-ink">
+                          {formatCurrency(booking.estimated_price)}
+                        </p>
+                      </div>
+                      <div className="rounded-2xl bg-white/85 p-4">
+                        <p className="text-xs uppercase tracking-[0.2em] text-ink/40">Mehmonlar</p>
+                        <p className="mt-2 text-sm font-medium text-ink">{booking.guests} kishi</p>
+                      </div>
+                      <div className="rounded-2xl bg-white/85 p-4 sm:col-span-2 xl:col-span-2">
+                        <p className="text-xs uppercase tracking-[0.2em] text-ink/40">Sanalar</p>
+                        <p className="mt-2 text-sm font-medium text-ink">{formatBookingDates(booking)}</p>
+                      </div>
+                    </div>
+                  </div>
 
-          <form className="mt-5 space-y-4 rounded-[28px] bg-pearl p-5" onSubmit={handleMediaUpload}>
-            <h3 className="text-lg font-semibold">Hero va galereya</h3>
+                  <div className="flex flex-wrap gap-2 lg:max-w-[220px] lg:justify-end">
+                    <button
+                      type="button"
+                      onClick={() =>
+                        void runAction(() => updateBookingStatus(booking.id, "approved"), "Bron tasdiqlandi.")
+                      }
+                      className="inline-flex items-center gap-1 rounded-full border border-emerald-200 px-4 py-2 text-xs font-medium text-emerald-700 transition hover:bg-emerald-50"
+                    >
+                      <Check size={14} />
+                      Tasdiqlash
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() =>
+                        void runAction(() => updateBookingStatus(booking.id, "rejected"), "Bron rad etildi.")
+                      }
+                      className="inline-flex items-center gap-1 rounded-full border border-amber-200 px-4 py-2 text-xs font-medium text-amber-700 transition hover:bg-amber-50"
+                    >
+                      <X size={14} />
+                      Rad etish
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => void runAction(() => deleteBooking(booking.id), "Bron o'chirildi.")}
+                      className="inline-flex items-center gap-1 rounded-full border border-red-200 px-4 py-2 text-xs font-medium text-red-700 transition hover:bg-red-50"
+                    >
+                      <Trash2 size={14} />
+                      O'chirish
+                    </button>
+                  </div>
+                </div>
+              </div>
+            ))}
+
+            {bookings.length === 0 ? (
+              <div className="rounded-[28px] border border-dashed border-black/10 bg-pearl/60 p-8 text-sm text-ink/55">
+                Hozircha bron so'rovlari mavjud emas.
+              </div>
+            ) : null}
+          </div>
+        </SectionCard>
+
+        <SectionCard
+          title="Tezkor ko'rinish"
+          description="So'nggi bronlar va joriy media taqsimotini tez ko'rish uchun qisqa ko'rsatkichlar."
+        >
+          <div className="grid gap-4">
+            <div className="rounded-[28px] bg-gradient-to-br from-[#09111f] to-[#12284c] p-5 text-white">
+              <div className="flex items-center gap-2 text-white/72">
+                <CalendarRange size={18} />
+                <p className="text-sm font-medium">So'nggi bronlar</p>
+              </div>
+              <div className="mt-4 space-y-3">
+                {recentBookings.map((booking) => (
+                  <div key={booking.id} className="rounded-2xl border border-white/10 bg-white/8 p-4">
+                    <div className="flex items-center justify-between gap-3">
+                      <p className="font-medium">{booking.name}</p>
+                      <span className="text-xs text-white/65">{statusLabel(booking.status)}</span>
+                    </div>
+                    <p className="mt-2 text-sm text-white/70">{booking.package_name || booking.package_id}</p>
+                    <p className="mt-1 text-xs text-white/55">{formatBookingDates(booking)}</p>
+                  </div>
+                ))}
+                {recentBookings.length === 0 ? (
+                  <p className="text-sm text-white/65">Bronlar paydo bo'lgach shu yerda ko'rinadi.</p>
+                ) : null}
+              </div>
+            </div>
+
+            <div className="grid gap-4 sm:grid-cols-3">
+              <div className="rounded-[28px] border border-black/6 bg-pearl/70 p-5">
+                <p className="text-xs uppercase tracking-[0.24em] text-ink/35">Hero</p>
+                <p className="mt-3 text-3xl font-semibold text-ink">{heroMedia.length}</p>
+              </div>
+              <div className="rounded-[28px] border border-black/6 bg-pearl/70 p-5">
+                <p className="text-xs uppercase tracking-[0.24em] text-ink/35">Galereya</p>
+                <p className="mt-3 text-3xl font-semibold text-ink">{galleryMedia.length}</p>
+              </div>
+              <div className="rounded-[28px] border border-black/6 bg-pearl/70 p-5">
+                <p className="text-xs uppercase tracking-[0.24em] text-ink/35">Paket rasmlari</p>
+                <p className="mt-3 text-3xl font-semibold text-ink">{packageMedia.length}</p>
+              </div>
+            </div>
+          </div>
+        </SectionCard>
+      </div>
+
+      <div className="mt-6 grid gap-6 xl:grid-cols-[0.92fr_1.08fr]">
+        <SectionCard
+          title="Media yuklash"
+          description="Hero, galereya va paket rasmlarini alohida yuklab, sayt ko'rinishini boshqaring."
+        >
+          <form className="space-y-4 rounded-[28px] bg-pearl p-5" onSubmit={handleMediaUpload}>
+            <h3 className="text-lg font-semibold text-ink">Hero va galereya</h3>
             <label className="space-y-2 text-sm text-ink/70">
               <span>Bo'lim</span>
               <select
@@ -628,7 +779,7 @@ export function AdminPage() {
                     kind: event.target.value as Exclude<MediaKind, "package">,
                   }))
                 }
-                className="w-full rounded-2xl border border-black/10 bg-white px-4 py-3 outline-none transition focus:border-pine"
+                className={inputClassName()}
               >
                 <option value="hero">Hero rasmlari</option>
                 <option value="gallery">Galereya</option>
@@ -646,7 +797,7 @@ export function AdminPage() {
                     file: event.target.files?.[0] ?? null,
                   }))
                 }
-                className="w-full rounded-2xl border border-black/10 bg-white px-4 py-3"
+                className={inputClassName()}
               />
             </label>
             <button
@@ -654,13 +805,13 @@ export function AdminPage() {
               disabled={working}
               className="inline-flex items-center justify-center gap-2 rounded-full bg-ink px-5 py-3 text-sm font-medium text-white transition hover:bg-pine disabled:cursor-not-allowed disabled:bg-ink/60"
             >
-              <Upload size={16} />
+              {working ? <LoaderCircle className="animate-spin" size={16} /> : <Upload size={16} />}
               Yuklash
             </button>
           </form>
 
           <form className="mt-6 space-y-4 rounded-[28px] bg-pearl p-5" onSubmit={handlePackageImageUpload}>
-            <h3 className="text-lg font-semibold">Paket rasmlari</h3>
+            <h3 className="text-lg font-semibold text-ink">Paket rasmlari</h3>
             <label className="space-y-2 text-sm text-ink/70">
               <span>Paket</span>
               <select
@@ -671,7 +822,7 @@ export function AdminPage() {
                     packageId: event.target.value,
                   }))
                 }
-                className="w-full rounded-2xl border border-black/10 bg-white px-4 py-3 outline-none transition focus:border-pine"
+                className={inputClassName()}
               >
                 <option value="">Paketni tanlang</option>
                 {packages.map((item) => (
@@ -693,7 +844,7 @@ export function AdminPage() {
                     file: event.target.files?.[0] ?? null,
                   }))
                 }
-                className="w-full rounded-2xl border border-black/10 bg-white px-4 py-3"
+                className={inputClassName()}
               />
             </label>
             <button
@@ -701,28 +852,34 @@ export function AdminPage() {
               disabled={working}
               className="inline-flex items-center justify-center gap-2 rounded-full bg-ink px-5 py-3 text-sm font-medium text-white transition hover:bg-pine disabled:cursor-not-allowed disabled:bg-ink/60"
             >
-              <Upload size={16} />
+              {working ? <LoaderCircle className="animate-spin" size={16} /> : <Upload size={16} />}
               Paket rasmini yuklash
             </button>
           </form>
-        </section>
+        </SectionCard>
 
-        <section className="rounded-[32px] border border-black/5 bg-white p-6 shadow-soft">
-          <h2 className="text-2xl font-semibold tracking-tight">Yuklangan media</h2>
-
-          <div className="mt-5 space-y-6">
+        <SectionCard
+          title="Yuklangan media"
+          description="Yuklangan fayllarni bo'limlar bo'yicha ko'ring va vizual holatni tekshirib boring."
+        >
+          <div className="space-y-6">
             <div>
               <p className="mb-3 text-sm font-medium text-ink">Hero rasmlari</p>
               <div className="grid gap-4 sm:grid-cols-2">
                 {heroMedia.map((item) => (
-                  <div key={item.id} className="overflow-hidden rounded-3xl border border-black/5 bg-pearl">
+                  <div key={item.id} className="overflow-hidden rounded-[28px] border border-black/5 bg-pearl">
                     {isVideoUrl(item.url) ? (
-                      <video src={item.url} controls className="h-40 w-full object-cover" />
+                      <video src={item.url} controls className="h-44 w-full object-cover" />
                     ) : (
-                      <img src={item.url} alt="Hero media" className="h-40 w-full object-cover" />
+                      <img src={item.url} alt="Hero media" className="h-44 w-full object-cover" />
                     )}
                   </div>
                 ))}
+                {heroMedia.length === 0 ? (
+                  <div className="rounded-[28px] border border-dashed border-black/10 bg-pearl/60 p-8 text-sm text-ink/55">
+                    Hero media hali yuklanmagan.
+                  </div>
+                ) : null}
               </div>
             </div>
 
@@ -730,14 +887,19 @@ export function AdminPage() {
               <p className="mb-3 text-sm font-medium text-ink">Galereya</p>
               <div className="grid gap-4 sm:grid-cols-2">
                 {galleryMedia.map((item) => (
-                  <div key={item.id} className="overflow-hidden rounded-3xl border border-black/5 bg-pearl">
+                  <div key={item.id} className="overflow-hidden rounded-[28px] border border-black/5 bg-pearl">
                     {isVideoUrl(item.url) ? (
-                      <video src={item.url} controls className="h-40 w-full object-cover" />
+                      <video src={item.url} controls className="h-44 w-full object-cover" />
                     ) : (
-                      <img src={item.url} alt="Galereya media" className="h-40 w-full object-cover" />
+                      <img src={item.url} alt="Galereya media" className="h-44 w-full object-cover" />
                     )}
                   </div>
                 ))}
+                {galleryMedia.length === 0 ? (
+                  <div className="rounded-[28px] border border-dashed border-black/10 bg-pearl/60 p-8 text-sm text-ink/55">
+                    Galereya media hali yuklanmagan.
+                  </div>
+                ) : null}
               </div>
             </div>
 
@@ -745,17 +907,20 @@ export function AdminPage() {
               <p className="mb-3 text-sm font-medium text-ink">Paket rasmlari</p>
               <div className="grid gap-4 sm:grid-cols-2">
                 {packageMedia.map((item) => (
-                  <div key={item.id} className="overflow-hidden rounded-3xl border border-black/5 bg-pearl">
-                    <img src={item.url} alt="Paket rasmi" className="h-40 w-full object-cover" />
-                    <div className="p-4 text-xs text-ink/55">
-                      Paket ID: {item.package_id ?? "Biriktirilmagan"}
-                    </div>
+                  <div key={item.id} className="overflow-hidden rounded-[28px] border border-black/5 bg-pearl">
+                    <img src={item.url} alt="Paket rasmi" className="h-44 w-full object-cover" />
+                    <div className="p-4 text-xs text-ink/55">Paket ID: {item.package_id ?? "Biriktirilmagan"}</div>
                   </div>
                 ))}
+                {packageMedia.length === 0 ? (
+                  <div className="rounded-[28px] border border-dashed border-black/10 bg-pearl/60 p-8 text-sm text-ink/55">
+                    Paket rasmlari hali yuklanmagan.
+                  </div>
+                ) : null}
               </div>
             </div>
           </div>
-        </section>
+        </SectionCard>
       </div>
     </div>
   );
