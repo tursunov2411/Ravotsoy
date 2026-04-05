@@ -1,0 +1,15 @@
+{
+  "name": "ravotsoy-dam-olish-maskani",
+  "private": true,
+  "version": "1.0.0",
+  "workspaces": [
+    "frontend",
+    "backend"
+  ],
+  "scripts": {
+    "dev": "npm run dev --workspace frontend",
+    "build": "npm run build --workspace frontend",
+    "telegram:test": "npm run telegram:test --workspace backend"
+  }
+}
+

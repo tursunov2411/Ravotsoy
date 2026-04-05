@@ -1,0 +1,16 @@
+{
+  "name": "backend",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "start": "node index.js",
+    "dev": "node server.js",
+    "telegram:test": "node scripts/send-telegram-booking.mjs",
+    "telegram:webhook": "node scripts/telegram-webhook-server.mjs"
+  },
+  "dependencies": {
+    "axios": "^1.9.0",
+    "dotenv": "^16.5.0"
+  }
+}
