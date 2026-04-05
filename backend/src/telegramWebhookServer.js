@@ -15,6 +15,7 @@ const CALLBACKS = {
   confirm: "confirm_booking",
   cancel: "cancel_booking",
 };
+const MAX_TELEGRAM_CAPTION_LENGTH = 1024;
 const MAIN_KEYBOARD = {
   keyboard: [
     [{ text: BUTTONS.packages }, { text: BUTTONS.availability }],
@@ -91,13 +92,19 @@ function formatPrice(value) {
 }
 
 function formatPackageCaption(item) {
-  return [
+  const caption = [
     item.name,
     "",
     item.description,
     "",
     `Narxi: ${formatPrice(item.base_price)} so'm`,
   ].join("\n");
+
+  if (caption.length <= MAX_TELEGRAM_CAPTION_LENGTH) {
+    return caption;
+  }
+
+  return `${caption.slice(0, MAX_TELEGRAM_CAPTION_LENGTH - 3)}...`;
 }
 
 function normalizeTelegramDisplay(value) {
@@ -344,7 +351,12 @@ export function createTelegramWebhookApp() {
     try {
       await telegram.answerCallbackQuery(callbackQueryId, text);
     } catch (error) {
-      console.error("Telegram callback acknowledgement failed:", error);
+      const message = axios.isAxiosError(error)
+        ? error.response?.data?.description ?? error.message
+        : error instanceof Error
+          ? error.message
+          : "Unknown error";
+      console.error(`Telegram callback acknowledgement failed: ${message}`);
     }
   }
 
