@@ -8,7 +8,8 @@
     "dev": "node server.js",
     "telegram:test": "node scripts/send-telegram-booking.mjs",
     "telegram:webhook": "node scripts/telegram-webhook-server.mjs",
-    "telegram:register": "node scripts/register-telegram-webhooks.mjs"
+    "telegram:register": "node scripts/register-telegram-webhooks.mjs",
+    "report:daily": "node scripts/send-daily-report.mjs"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.101.1",

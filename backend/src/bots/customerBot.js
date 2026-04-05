@@ -120,6 +120,11 @@ function extractStartPayload(text) {
   return String(match?.[1] ?? "").trim();
 }
 
+function isGenericStartPayload(payloadToken) {
+  const normalized = String(payloadToken ?? "").trim().toLowerCase();
+  return normalized === "" || normalized === "start" || normalized === "website" || normalized === "home";
+}
+
 function todayIso() {
   return new Date().toISOString().slice(0, 10);
 }
@@ -978,7 +983,7 @@ export function createCustomerBot() {
     if (isStartCommand(text)) {
       const payloadToken = extractStartPayload(text);
 
-      if (payloadToken) {
+      if (payloadToken && !isGenericStartPayload(payloadToken)) {
         try {
           const prefill = await getTelegramPrefill(payloadToken);
 

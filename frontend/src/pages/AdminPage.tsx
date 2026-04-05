@@ -45,6 +45,7 @@ import {
   updateBookingStatus,
   uploadMediaAsset,
   uploadPackageImage,
+  uploadServiceImage,
   upsertHomeSection,
   upsertPackage,
   upsertResource,
@@ -64,6 +65,7 @@ import type {
   PricingRuleRecord,
   PublicContact,
   ResourceRecord,
+  ResourceType,
   SightseeingPlace,
   SiteSettings,
 } from "../lib/types";
@@ -127,6 +129,14 @@ const sectionTypeOptions: Array<{ value: ContentSectionType; label: string }> = 
   { value: "gallery", label: "Gallery" },
   { value: "sightseeing", label: "Sightseeing" },
   { value: "contacts", label: "Contacts" },
+];
+
+const resourceTypeOptions: ResourceType[] = [
+  "room_small",
+  "room_big",
+  "tapchan_small",
+  "tapchan_big",
+  "tapchan_very_big",
 ];
 
 function createEmptyContact(): PublicContact {
@@ -416,6 +426,8 @@ type AdminNavItem = {
   hint: string;
 };
 
+type MediaUploadKind = Exclude<MediaKind, "package" | "service">;
+
 export function AdminPage() {
   const navigate = useNavigate();
   const [session, setSession] = useState<Session | null>(null);
@@ -432,12 +444,23 @@ export function AdminPage() {
   const [packageImageFiles, setPackageImageFiles] = useState<File[]>([]);
   const [editingPackageId, setEditingPackageId] = useState<string | null>(null);
   const [mediaForm, setMediaForm] = useState({
-    kind: "hero" as Exclude<MediaKind, "package">,
+    kind: "hero" as MediaUploadKind,
     file: null as File | null,
   });
   const [packageImageForm, setPackageImageForm] = useState({
     packageId: "",
     files: [] as File[],
+  });
+  const [serviceImageForm, setServiceImageForm] = useState({
+    resourceType: "",
+    files: [] as File[],
+  });
+  const [serviceImageDrafts, setServiceImageDrafts] = useState<Record<string, File | null>>({});
+  const [newResourceForm, setNewResourceForm] = useState({
+    type: "room_small" as ResourceType,
+    name: "",
+    capacity: 1,
+    is_active: true,
   });
   const [newSectionType, setNewSectionType] = useState<ContentSectionType>("about");
   const [notice, setNotice] = useState("");
@@ -656,6 +679,64 @@ export function AdminPage() {
     setResources(savedResources);
   };
 
+  const createResource = async () => {
+    const savedResource = await upsertResource({
+      id: "",
+      type: newResourceForm.type,
+      name: newResourceForm.name.trim() || pricingRuleLabel(newResourceForm.type),
+      capacity: Math.max(Number(newResourceForm.capacity || 0), 1),
+      is_active: newResourceForm.is_active,
+    });
+
+    setResources((current) => [...current, savedResource]);
+    setNewResourceForm({
+      type: "room_small",
+      name: "",
+      capacity: 1,
+      is_active: true,
+    });
+  };
+
+  const replaceServiceImageForType = async (resourceType: string) => {
+    const nextFile = serviceImageDrafts[resourceType];
+
+    if (!nextFile) {
+      setError("Avval yangi servis rasmini tanlang.");
+      return;
+    }
+
+    await runAction(
+      async () => {
+        const currentAssets = media.filter((item) => item.type === "service" && item.resource_type === resourceType);
+
+        if (currentAssets.length > 0) {
+          await Promise.all(currentAssets.map((asset) => deleteMediaAsset(asset)));
+        }
+
+        await uploadServiceImage(nextFile, resourceType);
+        setServiceImageDrafts((current) => ({ ...current, [resourceType]: null }));
+      },
+      "Servis rasmi yangilandi.",
+    );
+  };
+
+  const deleteServiceImageForType = async (resourceType: string) => {
+    const currentAssets = media.filter((item) => item.type === "service" && item.resource_type === resourceType);
+
+    if (currentAssets.length === 0) {
+      setError("Bu servis uchun rasm topilmadi.");
+      return;
+    }
+
+    await runAction(
+      async () => {
+        await Promise.all(currentAssets.map((asset) => deleteMediaAsset(asset)));
+        setServiceImageDrafts((current) => ({ ...current, [resourceType]: null }));
+      },
+      "Servis rasmi o'chirildi.",
+    );
+  };
+
   const handlePackageSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     setWorking(true);
@@ -729,6 +810,25 @@ export function AdminPage() {
         setPackageImageForm({ packageId: "", files: [] });
       },
       "Paket rasmlari yuklandi.",
+    );
+  };
+
+  const handleServiceImageUpload = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+
+    if (!serviceImageForm.resourceType || serviceImageForm.files.length === 0) {
+      setError("Resurs turi va kamida bitta rasm faylini tanlang.");
+      return;
+    }
+
+    await runAction(
+      async () => {
+        await Promise.all(
+          serviceImageForm.files.map((file) => uploadServiceImage(file, serviceImageForm.resourceType)),
+        );
+        setServiceImageForm({ resourceType: "", files: [] });
+      },
+      "Servis rasmlari yuklandi.",
     );
   };
 
@@ -806,10 +906,35 @@ export function AdminPage() {
   const heroMedia = media.filter((item) => item.type === "hero");
   const galleryMedia = media.filter((item) => item.type === "gallery");
   const packageMedia = media.filter((item) => item.type === "package");
+  const serviceMedia = media.filter((item) => item.type === "service");
   const recentBookings = useMemo(() => bookings.slice(0, 6), [bookings]);
   const orderedSections = useMemo(
     () => [...homeSections].sort((left, right) => left.sort_order - right.sort_order),
     [homeSections],
+  );
+  const serviceResourceTypes = useMemo(
+    () =>
+      Array.from(
+        new Set(
+          [
+            ...resourceTypeOptions,
+            ...resources.map((item) => String(item.type ?? "")),
+            ...pricingRules.map((item) => String(item.resource_type ?? "")),
+            ...serviceMedia.map((item) => String(item.resource_type ?? "")),
+          ].filter(Boolean),
+        ),
+      ),
+    [pricingRules, resources, serviceMedia],
+  );
+  const serviceMediaByType = useMemo(
+    () =>
+      Object.fromEntries(
+        serviceResourceTypes.map((resourceType) => [
+          resourceType,
+          serviceMedia.find((item) => item.resource_type === resourceType) ?? null,
+        ]),
+      ) as Record<string, MediaAsset | null>,
+    [serviceMedia, serviceResourceTypes],
   );
   const [activeAdminSection, setActiveAdminSection] = useState<AdminNavItem["id"]>("overview");
 
@@ -1024,6 +1149,17 @@ export function AdminPage() {
         <SectionCard
           title="Sayt sozlamalari"
           description="Asosiy public kontent, hero slayder tartibi, joylashuv va xodimlar kontaktlarini shu yerdan boshqaring."
+          action={
+            <button
+              type="button"
+              disabled={working}
+              onClick={() => void runAction(saveSiteSettings, "Sayt sozlamalari saqlandi.")}
+              className="inline-flex items-center justify-center gap-2 rounded-full bg-ink px-5 py-3 text-sm font-medium text-white transition hover:bg-pine disabled:cursor-not-allowed disabled:bg-ink/60"
+            >
+              {working ? <LoaderCircle className="animate-spin" size={16} /> : <Save size={16} />}
+              Kontentni saqlash
+            </button>
+          }
         >
           <form className="grid gap-4 lg:grid-cols-2" onSubmit={handleSiteSettingsSubmit}>
             <label className="space-y-2 text-sm text-ink/70">
@@ -1086,11 +1222,22 @@ export function AdminPage() {
             </label>
 
             <div className="space-y-4 rounded-[28px] bg-pearl p-5 lg:col-span-2">
-              <div>
-                <p className="text-lg font-semibold text-ink">To'lov qabul qilish</p>
-                <p className="mt-1 text-sm leading-6 text-ink/58">
-                  Tashqi to'lov tizimisiz ishlash uchun shu yerga karta va menejer ma'lumotlarini kiriting.
-                </p>
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                <div>
+                  <p className="text-lg font-semibold text-ink">To'lov qabul qilish</p>
+                  <p className="mt-1 text-sm leading-6 text-ink/58">
+                    Tashqi to'lov tizimisiz ishlash uchun shu yerga karta va menejer ma'lumotlarini kiriting.
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  disabled={working}
+                  onClick={() => void runAction(saveSiteSettings, "To'lov parametrlari saqlandi.")}
+                  className="inline-flex items-center justify-center gap-2 rounded-full bg-ink px-5 py-3 text-sm font-medium text-white transition hover:bg-pine disabled:cursor-not-allowed disabled:bg-ink/60"
+                >
+                  <Save size={16} />
+                  To'lovni saqlash
+                </button>
               </div>
 
               <div className="grid gap-4 lg:grid-cols-2">
@@ -1310,6 +1457,83 @@ export function AdminPage() {
                 </button>
               </div>
 
+              <div className="grid gap-4 rounded-[24px] border border-black/8 bg-white/85 p-4 lg:grid-cols-[0.9fr_1.1fr_0.65fr_auto_auto]">
+                <label className="space-y-2 text-sm text-ink/70">
+                  <span>Turi</span>
+                  <select
+                    value={newResourceForm.type}
+                    onChange={(event) =>
+                      setNewResourceForm((current) => ({
+                        ...current,
+                        type: event.target.value as ResourceType,
+                      }))
+                    }
+                    className={inputClassName()}
+                  >
+                    {resourceTypeOptions.map((resourceType) => (
+                      <option key={resourceType} value={resourceType}>
+                        {pricingRuleLabel(resourceType)}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+
+                <label className="space-y-2 text-sm text-ink/70">
+                  <span>Yangi resurs nomi</span>
+                  <input
+                    value={newResourceForm.name}
+                    onChange={(event) =>
+                      setNewResourceForm((current) => ({
+                        ...current,
+                        name: event.target.value,
+                      }))
+                    }
+                    placeholder="Masalan: Kichik xona 3"
+                    className={inputClassName()}
+                  />
+                </label>
+
+                <label className="space-y-2 text-sm text-ink/70">
+                  <span>Sig'imi</span>
+                  <input
+                    type="number"
+                    min={1}
+                    value={newResourceForm.capacity}
+                    onChange={(event) =>
+                      setNewResourceForm((current) => ({
+                        ...current,
+                        capacity: Math.max(Number(event.target.value || 0), 1),
+                      }))
+                    }
+                    className={inputClassName()}
+                  />
+                </label>
+
+                <label className="flex items-end gap-3 rounded-[20px] border border-black/8 bg-pearl/60 px-4 py-3 text-sm text-ink/70">
+                  <input
+                    type="checkbox"
+                    checked={newResourceForm.is_active}
+                    onChange={(event) =>
+                      setNewResourceForm((current) => ({
+                        ...current,
+                        is_active: event.target.checked,
+                      }))
+                    }
+                  />
+                  <span>Faol</span>
+                </label>
+
+                <button
+                  type="button"
+                  disabled={working}
+                  onClick={() => void runAction(createResource, "Yangi resurs qo'shildi.")}
+                  className="inline-flex items-center justify-center gap-2 self-end rounded-full bg-ink px-5 py-3 text-sm font-medium text-white transition hover:bg-pine disabled:cursor-not-allowed disabled:bg-ink/60"
+                >
+                  <Plus size={16} />
+                  Resurs qo'shish
+                </button>
+              </div>
+
               <div className="grid gap-4">
                 {resources.map((resource) => (
                   <div key={resource.id} className="rounded-[24px] border border-black/8 bg-white/85 p-4">
@@ -1376,6 +1600,87 @@ export function AdminPage() {
                     Resurs birliklari topilmadi.
                   </div>
                 ) : null}
+              </div>
+            </div>
+
+            <div className="space-y-4 rounded-[28px] bg-pearl p-5 lg:col-span-2">
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                <div>
+                  <p className="text-lg font-semibold text-ink">Servis rasmlari</p>
+                  <p className="mt-1 text-sm leading-6 text-ink/58">
+                    Har bir xizmat turi uchun ko'rinadigan asosiy rasmni shu yerdan yuklang, almashtiring yoki o'chiring.
+                  </p>
+                </div>
+              </div>
+
+              <div className="grid gap-4 xl:grid-cols-2">
+                {serviceResourceTypes.map((resourceType) => {
+                  const currentAsset = serviceMediaByType[resourceType];
+                  const pendingFile = serviceImageDrafts[resourceType];
+
+                  return (
+                    <div key={resourceType} className="rounded-[24px] border border-black/8 bg-white/85 p-4">
+                      <div className="flex items-center justify-between gap-3">
+                        <div>
+                          <p className="text-sm font-semibold text-ink">{pricingRuleLabel(resourceType)}</p>
+                          <p className="mt-1 text-xs text-ink/45">{resourceType}</p>
+                        </div>
+                        <span className="rounded-full bg-pearl px-3 py-1 text-xs text-ink/60">
+                          {currentAsset ? "Rasm biriktirilgan" : "Rasm yo'q"}
+                        </span>
+                      </div>
+
+                      <div className="mt-4 overflow-hidden rounded-[20px] border border-black/6 bg-pearl/60">
+                        {currentAsset ? (
+                          <img src={currentAsset.url} alt={pricingRuleLabel(resourceType)} className="h-48 w-full object-cover" />
+                        ) : (
+                          <div className="flex h-48 items-center justify-center bg-[linear-gradient(135deg,#eef8f2_0%,#f5f7fb_55%,#fbf6ef_100%)] text-sm text-ink/45">
+                            Hozircha servis rasmi yuklanmagan
+                          </div>
+                        )}
+                      </div>
+
+                      <label className="mt-4 block space-y-2 text-sm text-ink/70">
+                        <span>Yangi rasm</span>
+                        <input
+                          type="file"
+                          accept="image/*"
+                          onChange={(event) =>
+                            setServiceImageDrafts((current) => ({
+                              ...current,
+                              [resourceType]: event.target.files?.[0] ?? null,
+                            }))
+                          }
+                          className={inputClassName()}
+                        />
+                        <p className="text-xs leading-5 text-ink/45">
+                          {pendingFile ? `Tanlangan fayl: ${pendingFile.name}` : "Yangi rasm tanlasangiz, eski rasm almashtiriladi."}
+                        </p>
+                      </label>
+
+                      <div className="mt-4 flex flex-wrap gap-3">
+                        <button
+                          type="button"
+                          disabled={working || !pendingFile}
+                          onClick={() => void replaceServiceImageForType(resourceType)}
+                          className="inline-flex items-center justify-center gap-2 rounded-full bg-ink px-4 py-2 text-sm font-medium text-white transition hover:bg-pine disabled:cursor-not-allowed disabled:bg-ink/60"
+                        >
+                          <Upload size={14} />
+                          {currentAsset ? "Rasmni almashtirish" : "Rasmni yuklash"}
+                        </button>
+                        <button
+                          type="button"
+                          disabled={working || !currentAsset}
+                          onClick={() => void deleteServiceImageForType(resourceType)}
+                          className="inline-flex items-center justify-center gap-2 rounded-full border border-red-200 px-4 py-2 text-sm font-medium text-red-700 transition hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-50"
+                        >
+                          <Trash2 size={14} />
+                          Rasmni o'chirish
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })}
               </div>
             </div>
 
@@ -1628,7 +1933,7 @@ export function AdminPage() {
         <section id="media-upload" className="scroll-mt-28">
         <SectionCard
           title="Media boshqaruvi"
-          description="Hero, galereya va paket rasmlarini shu yerdan yuklang va o'chiring."
+          description="Hero, galereya, servis va paket rasmlarini shu yerdan yuklang va o'chiring."
         >
           <form className="space-y-4 rounded-[28px] bg-pearl p-5" onSubmit={handleMediaUpload}>
             <h3 className="text-lg font-semibold text-ink">Hero va galereya media</h3>
@@ -1639,7 +1944,7 @@ export function AdminPage() {
                 onChange={(event) =>
                   setMediaForm((current) => ({
                     ...current,
-                    kind: event.target.value as Exclude<MediaKind, "package">,
+                    kind: event.target.value as MediaUploadKind,
                   }))
                 }
                 className={inputClassName()}
@@ -1719,6 +2024,55 @@ export function AdminPage() {
             >
               {working ? <LoaderCircle className="animate-spin" size={16} /> : <Upload size={16} />}
               Paket rasmini yuklash
+            </button>
+          </form>
+
+          <form className="mt-6 space-y-4 rounded-[28px] bg-pearl p-5" onSubmit={handleServiceImageUpload}>
+            <h3 className="text-lg font-semibold text-ink">Servis rasmi yuklash</h3>
+            <label className="space-y-2 text-sm text-ink/70">
+              <span>Resurs turi</span>
+              <select
+                value={serviceImageForm.resourceType}
+                onChange={(event) =>
+                  setServiceImageForm((current) => ({
+                    ...current,
+                    resourceType: event.target.value,
+                  }))
+                }
+                className={inputClassName()}
+              >
+                <option value="">Resurs turini tanlang</option>
+                {serviceResourceTypes.map((resourceType) => (
+                  <option key={resourceType} value={resourceType}>
+                    {pricingRuleLabel(resourceType)}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="space-y-2 text-sm text-ink/70">
+              <span>Servis rasmlari</span>
+              <input
+                required
+                type="file"
+                multiple
+                accept="image/*"
+                onChange={(event) =>
+                  setServiceImageForm((current) => ({
+                    ...current,
+                    files: Array.from(event.target.files ?? []),
+                  }))
+                }
+                className={inputClassName()}
+              />
+              <p className="text-xs leading-5 text-ink/45">Booking sahifasidagi servis kartalari shu rasmlardan foydalanadi.</p>
+            </label>
+            <button
+              type="submit"
+              disabled={working}
+              className="inline-flex items-center justify-center gap-2 rounded-full bg-ink px-5 py-3 text-sm font-medium text-white transition hover:bg-pine disabled:cursor-not-allowed disabled:bg-ink/60"
+            >
+              {working ? <LoaderCircle className="animate-spin" size={16} /> : <Upload size={16} />}
+              Servis rasmini yuklash
             </button>
           </form>
         </SectionCard>
@@ -2234,6 +2588,7 @@ export function AdminPage() {
             {[
               { title: "Hero media", items: heroMedia },
               { title: "Gallery media", items: galleryMedia },
+              { title: "Service media", items: serviceMedia },
               { title: "Package media", items: packageMedia },
             ].map((group) => (
               <div key={group.title}>
@@ -2251,6 +2606,9 @@ export function AdminPage() {
                           <p className="truncate text-sm font-medium text-ink">{item.id}</p>
                           {item.package_id ? (
                             <p className="mt-1 text-xs text-ink/45">Paket ID: {item.package_id}</p>
+                          ) : null}
+                          {item.resource_type ? (
+                            <p className="mt-1 text-xs text-ink/45">Resurs turi: {pricingRuleLabel(String(item.resource_type))}</p>
                           ) : null}
                         </div>
                         <button
@@ -2638,7 +2996,7 @@ export function AdminPage() {
               </div>
             </div>
 
-            <div className="grid gap-4 sm:grid-cols-3">
+            <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
               <div className="rounded-[28px] border border-black/6 bg-pearl/70 p-5">
                 <p className="text-xs uppercase tracking-[0.24em] text-ink/35">Hero</p>
                 <p className="mt-3 text-3xl font-semibold text-ink">{heroMedia.length}</p>
@@ -2646,6 +3004,10 @@ export function AdminPage() {
               <div className="rounded-[28px] border border-black/6 bg-pearl/70 p-5">
                 <p className="text-xs uppercase tracking-[0.24em] text-ink/35">Galereya</p>
                 <p className="mt-3 text-3xl font-semibold text-ink">{galleryMedia.length}</p>
+              </div>
+              <div className="rounded-[28px] border border-black/6 bg-pearl/70 p-5">
+                <p className="text-xs uppercase tracking-[0.24em] text-ink/35">Servis rasmlari</p>
+                <p className="mt-3 text-3xl font-semibold text-ink">{serviceMedia.length}</p>
               </div>
               <div className="rounded-[28px] border border-black/6 bg-pearl/70 p-5">
                 <p className="text-xs uppercase tracking-[0.24em] text-ink/35">Paket rasmlari</p>

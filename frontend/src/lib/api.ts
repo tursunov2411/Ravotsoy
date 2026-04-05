@@ -326,7 +326,7 @@ export async function getMediaAssets() {
   const client = ensureSupabase();
   const { data, error } = await client
     .from("media")
-    .select("id, type, url, package_id, storage_path")
+    .select("id, type, url, package_id, resource_type, storage_path")
     .order("created_at", { ascending: false });
 
   if (error) {
@@ -338,6 +338,7 @@ export async function getMediaAssets() {
     type: item.type,
     url: item.url,
     package_id: item.package_id,
+    resource_type: item.resource_type ? String(item.resource_type) : null,
     storage_path: item.storage_path ?? null,
   }));
 }
@@ -526,15 +527,38 @@ export async function getResources() {
 
 export async function upsertResource(payload: ResourceRecord) {
   const client = ensureSupabase();
+  const normalizedId = String(payload.id ?? "").trim();
+  const resourcePayload = {
+    type: payload.type,
+    name: payload.name,
+    capacity: payload.capacity,
+    is_active: payload.is_active,
+  };
+
+  if (!normalizedId) {
+    const { data, error } = await client
+      .from("resources")
+      .insert(resourcePayload)
+      .select("id, type, name, capacity, is_active")
+      .single();
+
+    if (error) {
+      throw error;
+    }
+
+    return {
+      id: String(data.id ?? ""),
+      type: String(data.type ?? ""),
+      name: String(data.name ?? ""),
+      capacity: Number(data.capacity ?? 0),
+      is_active: Boolean(data.is_active),
+    } satisfies ResourceRecord;
+  }
+
   const { data, error } = await client
     .from("resources")
-    .update({
-      type: payload.type,
-      name: payload.name,
-      capacity: payload.capacity,
-      is_active: payload.is_active,
-    })
-    .eq("id", payload.id)
+    .update(resourcePayload)
+    .eq("id", normalizedId)
     .select("id, type, name, capacity, is_active")
     .single();
 
@@ -820,10 +844,19 @@ export function onAuthChange(callback: (session: Session | null) => void) {
   };
 }
 
-export async function uploadMediaAsset(file: File, type: MediaKind, packageId?: string | null) {
+export async function uploadMediaAsset(
+  file: File,
+  type: MediaKind,
+  packageId?: string | null,
+  resourceType?: string | null,
+) {
   const client = ensureSupabase();
   const extension = file.name.split(".").pop() ?? "bin";
-  const folder = type === "package" && packageId ? `packages/${packageId}` : type;
+  const folder = type === "package" && packageId
+    ? `packages/${packageId}`
+    : type === "service" && resourceType
+      ? `services/${resourceType}`
+      : type;
   const path = `${folder}/${crypto.randomUUID()}.${extension}`;
   const bucket = type === "package" ? packageImagesBucket : defaultMediaBucket;
 
@@ -842,9 +875,10 @@ export async function uploadMediaAsset(file: File, type: MediaKind, packageId?: 
       type,
       url: publicUrlData.publicUrl,
       package_id: packageId ?? null,
+      resource_type: resourceType ?? null,
       storage_path: path,
     })
-    .select("id, type, url, package_id, storage_path")
+    .select("id, type, url, package_id, resource_type, storage_path")
     .single();
 
   if (insertError) {
@@ -856,12 +890,17 @@ export async function uploadMediaAsset(file: File, type: MediaKind, packageId?: 
     type: data.type as MediaKind,
     url: String(data.url),
     package_id: data.package_id ? String(data.package_id) : null,
+    resource_type: data.resource_type ? String(data.resource_type) : null,
     storage_path: data.storage_path ? String(data.storage_path) : null,
   } satisfies MediaAsset;
 }
 
 export async function uploadPackageImage(file: File, packageId: string) {
   return uploadMediaAsset(file, "package", packageId);
+}
+
+export async function uploadServiceImage(file: File, resourceType: string) {
+  return uploadMediaAsset(file, "service", null, resourceType);
 }
 
 export async function deleteMediaAsset(asset: MediaAsset) {

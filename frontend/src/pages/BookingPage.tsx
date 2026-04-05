@@ -12,21 +12,12 @@ import {
 import { AnimatePresence, motion } from "framer-motion";
 import { useEffect, useMemo, useState } from "react";
 import { AnimatedSection } from "../components/AnimatedSection";
-import { AnimatedText } from "../components/ui/animated-text";
-import { createTelegramPrefill, getSiteSettings, getTripBuilderOptions, quoteBooking } from "../lib/api";
-import type { BookingQuote, ResourceSelection, SiteSettings, TripBuilderOption } from "../lib/types";
+import { createTelegramPrefill, getMediaAssets, getSiteSettings, getTripBuilderOptions, quoteBooking } from "../lib/api";
+import type { BookingQuote, MediaAsset, ResourceSelection, SiteSettings, TripBuilderOption } from "../lib/types";
 import { calculateNights, cn, formatCurrency, getTelegramStartLink, todayIso } from "../lib/utils";
 
 type Step = "services" | "dates";
 type BookingForm = { checkIn: string; checkOut: string; dayDate: string };
-
-const serviceImages: Record<string, string> = {
-  room_small: "https://images.unsplash.com/photo-1505693416388-ac5ce068fe85?auto=format&fit=crop&w=1400&q=80",
-  room_big: "https://images.unsplash.com/photo-1522708323590-d24dbb6b0267?auto=format&fit=crop&w=1400&q=80",
-  tapchan_small: "https://images.unsplash.com/photo-1506744038136-46273834b3fb?auto=format&fit=crop&w=1400&q=80",
-  tapchan_big: "https://images.unsplash.com/photo-1519046904884-53103b34b206?auto=format&fit=crop&w=1400&q=80",
-  tapchan_very_big: "https://images.unsplash.com/photo-1507525428034-b723cf961d3e?auto=format&fit=crop&w=1400&q=80",
-};
 
 function summarizeSelections(options: TripBuilderOption[], selections: ResourceSelection[]) {
   return selections
@@ -64,6 +55,7 @@ export function BookingPage() {
   const [slideIndex, setSlideIndex] = useState(0);
   const [options, setOptions] = useState<TripBuilderOption[]>([]);
   const [siteSettings, setSiteSettings] = useState<SiteSettings | null>(null);
+  const [serviceMedia, setServiceMedia] = useState<MediaAsset[]>([]);
   const [quoteInfo, setQuoteInfo] = useState<BookingQuote | null>(null);
   const [error, setError] = useState("");
   const [submitting, setSubmitting] = useState(false);
@@ -74,9 +66,10 @@ export function BookingPage() {
   useEffect(() => {
     const load = async () => {
       try {
-        const [optionsData, settingsData] = await Promise.all([getTripBuilderOptions(), getSiteSettings()]);
+        const [optionsData, settingsData, mediaData] = await Promise.all([getTripBuilderOptions(), getSiteSettings(), getMediaAssets()]);
         setOptions(optionsData);
         setSiteSettings(settingsData);
+        setServiceMedia(mediaData.filter((item) => item.type === "service"));
         setRoomTapchanIncluded(
           Object.fromEntries(optionsData.filter((item) => item.bookingMode === "stay").map((item) => [item.resourceType, true])),
         );
@@ -90,7 +83,7 @@ export function BookingPage() {
   }, []);
 
   useEffect(() => {
-    const timeout = window.setTimeout(() => setShowIntro(false), 10000);
+    const timeout = window.setTimeout(() => setShowIntro(false), 3000);
     return () => window.clearTimeout(timeout);
   }, []);
 
@@ -153,6 +146,10 @@ export function BookingPage() {
 
   const hotelName = siteSettings?.hotel_name?.trim() || "Ravotsoy";
   const depositAmount = Math.ceil((quoteInfo?.totalPrice ?? 0) * depositRatio);
+  const introImage = serviceMedia[0]?.url || "";
+  const currentServiceImage = currentOption
+    ? serviceMedia.find((item) => item.resource_type === currentOption.resourceType)?.url || ""
+    : "";
 
   const handleQuantityChange = (resourceType: string, nextQuantity: number, maxQuantity: number) => {
     setQuantities((current) => ({ ...current, [resourceType]: Math.max(0, Math.min(nextQuantity, maxQuantity)) }));
@@ -196,55 +193,43 @@ export function BookingPage() {
             onClick={() => setShowIntro(false)}
             className="fixed inset-0 z-50 flex items-center justify-center bg-white px-6 text-center"
           >
-            <div>
-              <AnimatedText
-                text="Xush kelibsiz"
-                textClassName="text-5xl font-semibold tracking-tight text-slate-950 sm:text-7xl"
-                underlineGradient="from-emerald-500 via-sky-500 to-slate-950"
-              />
-              <p className="mt-8 max-w-2xl text-lg leading-8 text-slate-500">
-                {hotelName} xizmatlarini tanlang. Istalgan joyga bosing yoki 10 soniyadan keyin davom etamiz.
-              </p>
+            <div className="relative w-full max-w-5xl overflow-hidden rounded-[40px]">
+              {introImage ? (
+                <img src={introImage} alt={hotelName} className="h-[58vh] w-full object-cover" />
+              ) : (
+                <div className="h-[58vh] w-full bg-[linear-gradient(135deg,#e5f4ec_0%,#f4f8ff_52%,#fbf6ef_100%)]" />
+              )}
+              <div className="absolute inset-0 bg-gradient-to-t from-slate-950/75 via-slate-950/20 to-transparent" />
+              <div className="absolute inset-x-0 bottom-0 p-8 sm:p-12">
+                <p className="text-sm uppercase tracking-[0.32em] text-white/70">Ravotsoy</p>
+                <p className="mt-3 text-4xl font-semibold tracking-tight text-white sm:text-6xl">{hotelName}</p>
+              </div>
             </div>
           </motion.button>
         ) : null}
       </AnimatePresence>
 
       <div className="mx-auto max-w-7xl px-4 py-10 sm:px-6 lg:px-8">
-        <AnimatedSection className="rounded-[40px] border border-slate-200 bg-[radial-gradient(circle_at_top_left,#f3fbf7_0%,#ffffff_42%,#f7fbff_100%)] p-6 shadow-[0_30px_90px_rgba(15,23,42,0.08)] sm:p-8 lg:p-10">
-          <div className="flex flex-col gap-5 lg:flex-row lg:items-end lg:justify-between">
-            <div className="max-w-3xl">
-              <div className="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-white px-4 py-2 text-xs uppercase tracking-[0.28em] text-slate-500">
-                <Sparkles className="h-4 w-4 text-emerald-600" />
-                Xizmatlar
-              </div>
-              <h1 className="mt-5 text-4xl font-semibold tracking-tight text-slate-950 sm:text-5xl">Oq fonli bron konfiguratori</h1>
-              <p className="mt-4 text-base leading-8 text-slate-600">
-                Avval xizmatlarni tanlang, keyin sanani belgilang. Sayt faqat tanlov va boshlang'ich narxni ko'rsatadi,
-                yakuniy tasdiq esa Telegram botda davom etadi.
-              </p>
-            </div>
-
-            <div className="flex flex-wrap gap-3">
-              {[
-                { id: "services", label: "1. Xizmatlar" },
-                { id: "dates", label: "2. Sana va narx" },
-              ].map((item) => (
-                <button
-                  key={item.id}
-                  type="button"
-                  onClick={() => setStep(item.id as Step)}
-                  className={cn(
-                    "rounded-full px-5 py-3 text-sm font-medium transition",
-                    step === item.id ? "bg-slate-950 text-white" : "border border-slate-200 bg-white text-slate-500",
-                  )}
-                >
-                  {item.label}
-                </button>
-              ))}
-            </div>
+        <div className="flex justify-end">
+          <div className="flex flex-wrap gap-3">
+            {[
+              { id: "services", label: "1. Xizmatlar" },
+              { id: "dates", label: "2. Sana va narx" },
+            ].map((item) => (
+              <button
+                key={item.id}
+                type="button"
+                onClick={() => setStep(item.id as Step)}
+                className={cn(
+                  "rounded-full px-5 py-3 text-sm font-medium transition",
+                  step === item.id ? "bg-slate-950 text-white" : "border border-slate-200 bg-white text-slate-500",
+                )}
+              >
+                {item.label}
+              </button>
+            ))}
           </div>
-        </AnimatedSection>
+        </div>
 
         {step === "services" ? (
           <div className="mt-8 grid gap-8 lg:grid-cols-[1.08fr_0.92fr]">
@@ -268,7 +253,11 @@ export function BookingPage() {
 
                   <motion.div key={currentOption.resourceType} initial={{ opacity: 0, x: 24 }} animate={{ opacity: 1, x: 0 }} className="mt-6 overflow-hidden rounded-[30px] border border-slate-200 bg-[linear-gradient(180deg,#ffffff_0%,#f8fbff_100%)]">
                     <div className="relative h-72">
-                      <img src={serviceImages[currentOption.resourceType] || serviceImages.tapchan_small} alt={currentOption.label} className="h-full w-full object-cover" />
+                      {currentServiceImage ? (
+                        <img src={currentServiceImage} alt={currentOption.label} className="h-full w-full object-cover" />
+                      ) : (
+                        <div className="h-full w-full bg-[linear-gradient(135deg,#dff6ea_0%,#eff7ff_46%,#f8f5ed_100%)]" />
+                      )}
                       <div className="absolute inset-0 bg-gradient-to-t from-slate-950 via-slate-950/20 to-transparent" />
                       <div className="absolute bottom-0 left-0 right-0 p-5 text-white">
                         <div className="inline-flex rounded-full border border-white/20 bg-white/10 px-3 py-1 text-xs uppercase tracking-[0.24em]">

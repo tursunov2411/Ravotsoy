@@ -108,13 +108,14 @@ export type PaymentConfig = {
   requiredAmount?: number;
 };
 
-export type MediaKind = "hero" | "gallery" | "package";
+export type MediaKind = "hero" | "gallery" | "package" | "service";
 
 export type MediaAsset = {
   id: string;
   type: MediaKind;
   url: string;
   package_id?: string | null;
+  resource_type?: ResourceType | string | null;
   storage_path?: string | null;
 };
 

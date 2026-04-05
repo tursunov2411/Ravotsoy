@@ -22,14 +22,10 @@ export function calculateNights(checkIn?: string, checkOut?: string) {
   return Math.ceil(diff / (1000 * 60 * 60 * 24));
 }
 
-export function getTelegramLink(message: string) {
-  const username = import.meta.env.VITE_TELEGRAM_USERNAME?.replace("@", "");
+export function getTelegramLink(_message?: string) {
+  const username = (import.meta.env.VITE_TELEGRAM_USERNAME?.replace("@", "") || "ravotsoyadmin_bot").trim();
 
-  if (username) {
-    return `https://t.me/${username}?text=${encodeURIComponent(message)}`;
-  }
-
-  return `https://t.me/share/url?url=${encodeURIComponent(window.location.origin)}&text=${encodeURIComponent(message)}`;
+  return username ? `https://t.me/${username}?start=${encodeURIComponent("start")}` : "";
 }
 
 export function getTelegramStartLink(token: string) {
