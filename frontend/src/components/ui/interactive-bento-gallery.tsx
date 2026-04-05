@@ -1,6 +1,7 @@
 import { AnimatePresence, motion } from "framer-motion";
 import { ChevronLeft, ChevronRight, Grip, RotateCcw, X, ZoomIn, ZoomOut } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
+import { cn } from "../../lib/utils";
 
 export interface BentoGalleryItem {
   id: string;
@@ -169,7 +170,6 @@ function GalleryModal({
   onPrevious,
   onNext,
 }: GalleryModalProps) {
-  const [dockPosition, setDockPosition] = useState({ x: 0, y: 0 });
   const [zoom, setZoom] = useState(1);
 
   useEffect(() => {
@@ -195,14 +195,14 @@ function GalleryModal({
         animate={{ scale: 1, opacity: 1, y: 0 }}
         exit={{ scale: 0.98, opacity: 0, y: 18 }}
         transition={{ type: "spring", stiffness: 320, damping: 28 }}
-        className="fixed inset-0 z-50 flex items-center justify-center px-4 py-8 sm:px-6"
+        className="fixed inset-0 z-50 flex items-center justify-center px-3 py-4 sm:px-6 sm:py-6"
       >
-        <div className="relative flex h-full w-full max-w-6xl flex-col overflow-hidden rounded-[32px] border border-white/45 bg-white/75 shadow-[0_24px_80px_rgba(15,23,42,0.18)] backdrop-blur-2xl">
+        <div className="relative flex h-full w-full max-w-7xl flex-col overflow-hidden rounded-[32px] border border-white/45 bg-white/75 shadow-[0_24px_80px_rgba(15,23,42,0.18)] backdrop-blur-2xl">
           <div className="flex-1 p-3 sm:p-5">
             <AnimatePresence mode="wait">
               <motion.div
                 key={selectedItem.id}
-                className="relative flex h-full min-h-[340px] items-center justify-center overflow-hidden rounded-[28px] bg-slate-100"
+                className="relative flex h-full min-h-[420px] items-center justify-center overflow-hidden rounded-[28px] bg-slate-100"
                 initial={{ opacity: 0, scale: 0.985 }}
                 animate={{ opacity: 1, scale: 1 }}
                 exit={{ opacity: 0, scale: 0.985 }}
@@ -228,21 +228,15 @@ function GalleryModal({
                   }}
                   animate={{ scale: zoom }}
                   transition={{ type: "spring", stiffness: 280, damping: 28 }}
-                  className="flex max-h-[72vh] max-w-full items-center justify-center"
+                  className="flex h-full w-full items-center justify-center px-4 py-16 sm:px-8 sm:py-20"
                   style={{ touchAction: zoom > 1 ? "none" : "pan-y" }}
                 >
                   <MediaItem
                     item={selectedItem}
                     fit="contain"
-                    className="max-h-[72vh] max-w-full select-none"
+                    className="max-h-[68vh] max-w-full select-none sm:max-h-[72vh]"
                   />
                 </motion.div>
-                <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/70 via-black/35 to-transparent p-4 sm:p-6">
-                  <h3 className="text-lg font-semibold text-white sm:text-2xl">{selectedItem.title}</h3>
-                  <p className="mt-1 max-w-2xl text-sm leading-6 text-white/80 sm:text-base">
-                    {selectedItem.desc}
-                  </p>
-                </div>
 
                 {selectedItem.type === "image" ? (
                   <div className="absolute left-4 top-4 flex items-center gap-2 rounded-full bg-white/82 px-2 py-2 text-slate-700 shadow-lg backdrop-blur">
@@ -311,6 +305,40 @@ function GalleryModal({
             </AnimatePresence>
           </div>
 
+          <div className="border-t border-black/6 bg-white/72 px-4 py-4 backdrop-blur sm:px-5 sm:py-5">
+            <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
+              <div className="min-w-0 lg:max-w-xl">
+                <p className="text-xs uppercase tracking-[0.24em] text-ink/40">Galereya ko'rinishi</p>
+                <h3 className="mt-2 text-xl font-semibold tracking-tight text-ink sm:text-2xl">{selectedItem.title}</h3>
+                <p className="mt-2 text-sm leading-7 text-ink/62">{selectedItem.desc}</p>
+              </div>
+
+              <div className="flex items-center gap-2 overflow-x-auto pb-1 lg:max-w-[52%]">
+                {mediaItems.map((item, index) => (
+                  <motion.button
+                    key={item.id}
+                    type="button"
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      setSelectedItem(item);
+                    }}
+                    className={cn(
+                      "relative h-14 w-14 shrink-0 overflow-hidden rounded-2xl border bg-slate-100 transition sm:h-16 sm:w-16",
+                      selectedItem.id === item.id
+                        ? "border-ink shadow-[0_14px_28px_rgba(15,23,42,0.14)]"
+                        : "border-black/10 hover:border-black/20",
+                    )}
+                    initial={{ opacity: 0, y: 10 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    transition={{ delay: index * 0.02 }}
+                  >
+                    <MediaItem item={item} className="h-full w-full" />
+                  </motion.button>
+                ))}
+              </div>
+            </div>
+          </div>
+
           <motion.button
             className="absolute right-4 top-4 inline-flex h-10 w-10 items-center justify-center rounded-full bg-white/85 text-slate-700 shadow-lg transition hover:bg-white"
             onClick={onClose}
@@ -320,59 +348,6 @@ function GalleryModal({
             <X className="h-4 w-4" />
           </motion.button>
         </div>
-
-        <motion.div
-          drag
-          dragMomentum={false}
-          dragElastic={0.1}
-          initial={false}
-          animate={{ x: dockPosition.x, y: dockPosition.y }}
-          onDragEnd={(_, info) => {
-            setDockPosition((prev) => ({
-              x: prev.x + info.offset.x,
-              y: prev.y + info.offset.y,
-            }));
-          }}
-          className="pointer-events-auto fixed bottom-5 left-1/2 z-[60] -translate-x-1/2 touch-none"
-        >
-          <div className="rounded-[22px] border border-white/45 bg-white/55 px-3 py-2 shadow-[0_18px_48px_rgba(15,23,42,0.18)] backdrop-blur-2xl">
-            <div className="flex items-center -space-x-2">
-              {mediaItems.map((item, index) => (
-                <motion.button
-                  key={item.id}
-                  type="button"
-                  onClick={(event) => {
-                    event.stopPropagation();
-                    setSelectedItem(item);
-                  }}
-                  style={{
-                    zIndex: selectedItem.id === item.id ? 30 : mediaItems.length - index,
-                  }}
-                  className={`relative h-10 w-10 overflow-hidden rounded-2xl transition sm:h-12 sm:w-12 ${
-                    selectedItem.id === item.id
-                      ? "ring-2 ring-white/85 shadow-xl"
-                      : "hover:ring-2 hover:ring-white/45"
-                  }`}
-                  initial={{ rotate: index % 2 === 0 ? -12 : 12 }}
-                  animate={{
-                    scale: selectedItem.id === item.id ? 1.15 : 1,
-                    rotate: selectedItem.id === item.id ? 0 : index % 2 === 0 ? -12 : 12,
-                    y: selectedItem.id === item.id ? -6 : 0,
-                  }}
-                  whileHover={{
-                    scale: 1.24,
-                    rotate: 0,
-                    y: -8,
-                    transition: { type: "spring", stiffness: 400, damping: 24 },
-                  }}
-                >
-                  <MediaItem item={item} className="h-full w-full" />
-                  <div className="absolute inset-0 bg-gradient-to-b from-transparent via-white/10 to-white/20" />
-                </motion.button>
-              ))}
-            </div>
-          </div>
-        </motion.div>
       </motion.div>
     </>
   );
