@@ -214,7 +214,6 @@ export function HomePage() {
     "Tabiat bag'rida dam olish, paketlar va bron ma'lumotlari shu sahifada boshqariladi.";
   const aboutText = siteSettings?.about_text?.trim() || hotelDescription;
   const telegramLink = getTelegramLink(`${hotelName} haqida ma'lumot olmoqchiman.`);
-  const activeHero = heroSlides[heroIndex] ?? heroSlides[0] ?? null;
 
   useEffect(() => {
     if (heroSlides.length <= 1) {
@@ -605,73 +604,31 @@ export function HomePage() {
             </motion.div>
           </div>
 
-          <AnimatedSection className="mt-12">
-            <div className="grid gap-4 lg:grid-cols-[1.15fr_0.85fr]">
-              <div className="grid gap-4 rounded-[32px] border border-white/10 bg-white/10 p-5 backdrop-blur-xl md:grid-cols-3">
-                <div className="rounded-[24px] bg-white/10 p-5">
-                  <p className="text-xs uppercase tracking-[0.28em] text-white/55">Paketlar</p>
-                  <p className="mt-3 text-3xl font-semibold text-white">{packages.length}</p>
-                  <p className="mt-2 text-sm leading-7 text-white/70">Tanlangan paketlar shu sahifada ko'rsatiladi.</p>
-                </div>
-                <div className="rounded-[24px] bg-white/10 p-5">
-                  <p className="text-xs uppercase tracking-[0.28em] text-white/55">Fotolar</p>
-                  <p className="mt-3 text-3xl font-semibold text-white">{heroSlides.length}</p>
-                  <p className="mt-2 text-sm leading-7 text-white/70">Bosh sahifadagi asosiy surat va videolar soni.</p>
-                </div>
-                <div className="rounded-[24px] bg-white/10 p-5">
-                  <p className="text-xs uppercase tracking-[0.28em] text-white/55">Kontaktlar</p>
-                  <p className="mt-3 text-3xl font-semibold text-white">{contactPeople.length}</p>
-                  <p className="mt-2 text-sm leading-7 text-white/70">Telefon va Telegram profillari public sahifada chiqadi.</p>
-                </div>
-              </div>
-
-              <div className="rounded-[32px] border border-white/10 bg-white/10 p-5 backdrop-blur-xl">
-                <p className="text-xs uppercase tracking-[0.28em] text-white/55">Manzaralar</p>
-                <p className="mt-3 text-lg font-semibold text-white">
-                  {activeHero ? "Ravotsoydan lavhalar" : "Fotolar tez orada qo'shiladi"}
-                </p>
-                <div className="mt-5 flex gap-2">
-                  {heroSlides.length > 0 ? (
-                    heroSlides.map((item, index) => (
-                      <button
-                        key={item.id}
-                        type="button"
-                        onClick={() => setHeroIndex(index)}
-                        className={`h-2.5 rounded-full transition-all ${
-                          index === heroIndex ? "w-10 bg-white" : "w-2.5 bg-white/40"
-                        }`}
-                        aria-label={`Hero slide ${index + 1}`}
-                      />
-                    ))
-                  ) : (
-                    <div className="rounded-full bg-white/12 px-3 py-1 text-xs text-white/72">
-                      Hozircha asosiy fotolar mavjud emas
-                    </div>
-                  )}
-                </div>
-                <div className="mt-5 flex flex-wrap gap-3">
-                  <a
-                    href={locationUrl}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="inline-flex items-center gap-2 rounded-full border border-white/18 px-4 py-3 text-sm font-medium text-white transition hover:bg-white/10"
-                  >
-                    <MapPinned size={16} />
-                    Joylashuv
-                  </a>
-                  <a
-                    href={telegramLink}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="inline-flex items-center gap-2 rounded-full border border-white/18 px-4 py-3 text-sm font-medium text-white transition hover:bg-white/10"
-                  >
-                    <MessageCircleMore size={16} />
-                    Telegram
-                  </a>
-                </div>
-              </div>
-            </div>
-          </AnimatedSection>
+          <motion.div
+            initial={{ opacity: 0, y: 18 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: 0.28, duration: 0.7, ease: [0.16, 1, 0.3, 1] }}
+            className="mt-10 flex flex-wrap gap-3"
+          >
+            <a
+              href={locationUrl}
+              target="_blank"
+              rel="noreferrer"
+              className="inline-flex items-center gap-2 rounded-full border border-white/18 bg-white/8 px-4 py-3 text-sm font-medium text-white backdrop-blur transition hover:bg-white/12"
+            >
+              <MapPinned size={16} />
+              Joylashuv
+            </a>
+            <a
+              href={telegramLink}
+              target="_blank"
+              rel="noreferrer"
+              className="inline-flex items-center gap-2 rounded-full border border-white/18 bg-white/8 px-4 py-3 text-sm font-medium text-white backdrop-blur transition hover:bg-white/12"
+            >
+              <MessageCircleMore size={16} />
+              Telegram
+            </a>
+          </motion.div>
         </div>
       </section>
 

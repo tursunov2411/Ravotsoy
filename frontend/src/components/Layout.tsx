@@ -26,13 +26,6 @@ export function Layout() {
   const hotelDescription =
     siteSettings?.description?.trim() ||
     "Tabiat bag'rida dam olish, bron va paket ma'lumotlari shu yerda boshqariladi.";
-  const brandMark = hotelName
-    .split(" ")
-    .slice(0, 2)
-    .map((part) => part.charAt(0))
-    .join("")
-    .slice(0, 2)
-    .toUpperCase();
   const telegramLink = getTelegramLink(`Salom, ${hotelName} haqida ma'lumot olmoqchiman.`);
   const primaryContact = contacts.find((item) => item.phone.trim()) ?? null;
   const primaryPhoneLink = primaryContact ? getPhoneLink(primaryContact.phone) : "";
@@ -55,13 +48,8 @@ export function Layout() {
     <div className="min-h-screen bg-transparent text-ink">
       <header className="sticky top-0 z-30 border-b border-black/5 bg-white/68 backdrop-blur-2xl">
         <div className="mx-auto flex max-w-7xl items-center justify-between px-4 py-4 sm:px-6 lg:px-8">
-          <NavLink to="/" className="flex items-center gap-3">
-            <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-[linear-gradient(135deg,var(--secondary),var(--accent))] text-sm font-semibold text-white shadow-soft">
-              {brandMark || "RD"}
-            </div>
-            <div>
-              <p className="text-base font-semibold leading-tight text-ink">{hotelName}</p>
-            </div>
+          <NavLink to="/" className="text-base font-semibold leading-tight text-ink sm:text-lg">
+            {hotelName}
           </NavLink>
 
           <nav className="hidden items-center gap-2 rounded-full border border-black/5 bg-white/70 px-2 py-2 shadow-soft md:flex">

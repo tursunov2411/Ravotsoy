@@ -308,7 +308,7 @@ export function AdminPage() {
   const [homeSections, setHomeSections] = useState<ContentSection[]>([]);
   const [siteSettings, setSiteSettings] = useState<Omit<SiteSettings, "id">>(emptySiteSettings);
   const [packageForm, setPackageForm] = useState<PackageInput>(emptyPackage);
-  const [packageImageFile, setPackageImageFile] = useState<File | null>(null);
+  const [packageImageFiles, setPackageImageFiles] = useState<File[]>([]);
   const [editingPackageId, setEditingPackageId] = useState<string | null>(null);
   const [mediaForm, setMediaForm] = useState({
     kind: "hero" as Exclude<MediaKind, "package">,
@@ -316,7 +316,7 @@ export function AdminPage() {
   });
   const [packageImageForm, setPackageImageForm] = useState({
     packageId: "",
-    file: null as File | null,
+    files: [] as File[],
   });
   const [newSectionType, setNewSectionType] = useState<ContentSectionType>("about");
   const [notice, setNotice] = useState("");
@@ -472,14 +472,14 @@ export function AdminPage() {
     try {
       const savedPackage = await upsertPackage(editingPackageId, packageForm);
 
-      if (packageImageFile) {
-        await uploadPackageImage(packageImageFile, savedPackage.id);
+      if (packageImageFiles.length > 0) {
+        await Promise.all(packageImageFiles.map((file) => uploadPackageImage(file, savedPackage.id)));
       }
 
       await refresh();
       setEditingPackageId(null);
       setPackageForm(emptyPackage);
-      setPackageImageFile(null);
+      setPackageImageFiles([]);
       setNotice("Paket muvaffaqiyatli saqlandi.");
     } catch (submitError) {
       console.error(submitError);
@@ -509,17 +509,19 @@ export function AdminPage() {
   const handlePackageImageUpload = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
 
-    if (!packageImageForm.packageId || !packageImageForm.file) {
-      setError("Paket va rasm faylini tanlang.");
+    if (!packageImageForm.packageId || packageImageForm.files.length === 0) {
+      setError("Paket va kamida bitta rasm faylini tanlang.");
       return;
     }
 
     await runAction(
       async () => {
-        await uploadPackageImage(packageImageForm.file!, packageImageForm.packageId);
-        setPackageImageForm({ packageId: "", file: null });
+        await Promise.all(
+          packageImageForm.files.map((file) => uploadPackageImage(file, packageImageForm.packageId)),
+        );
+        setPackageImageForm({ packageId: "", files: [] });
       },
-      "Paket rasmi yuklandi.",
+      "Paket rasmlari yuklandi.",
     );
   };
 
@@ -1076,19 +1078,21 @@ export function AdminPage() {
               </select>
             </label>
             <label className="space-y-2 text-sm text-ink/70">
-              <span>Rasm fayli</span>
+              <span>Paket rasmlari</span>
               <input
                 required
                 type="file"
+                multiple
                 accept="image/*"
                 onChange={(event) =>
                   setPackageImageForm((current) => ({
                     ...current,
-                    file: event.target.files?.[0] ?? null,
+                    files: Array.from(event.target.files ?? []),
                   }))
                 }
                 className={inputClassName()}
               />
+              <p className="text-xs leading-5 text-ink/45">Bir nechta rasmni birdan yuklash mumkin.</p>
             </label>
             <button
               type="submit"
@@ -1707,13 +1711,15 @@ export function AdminPage() {
             </label>
 
             <label className="space-y-2 text-sm text-ink/70">
-              <span>Paket rasmi</span>
+              <span>Paket rasmlari</span>
               <input
                 type="file"
+                multiple
                 accept="image/*"
-                onChange={(event) => setPackageImageFile(event.target.files?.[0] ?? null)}
+                onChange={(event) => setPackageImageFiles(Array.from(event.target.files ?? []))}
                 className={inputClassName()}
               />
+              <p className="text-xs leading-5 text-ink/45">Yangi paketga bir nechta rasm birga biriktiriladi.</p>
             </label>
 
             <div className="flex flex-wrap gap-3 lg:col-span-2">
@@ -1731,7 +1737,7 @@ export function AdminPage() {
                   onClick={() => {
                     setEditingPackageId(null);
                     setPackageForm(emptyPackage);
-                    setPackageImageFile(null);
+                    setPackageImageFiles([]);
                   }}
                   className="inline-flex items-center justify-center gap-2 rounded-full border border-black/10 px-5 py-3 text-sm font-medium text-ink transition hover:bg-pearl"
                 >
