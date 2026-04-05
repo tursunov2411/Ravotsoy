@@ -1,3 +1,4 @@
+import { Button } from "./Button";
 import { Menu, X } from "lucide-react";
 import { useState } from "react";
 import { NavLink, Outlet } from "react-router-dom";
@@ -11,8 +12,8 @@ const navigation = [
 
 function navClass(isActive: boolean) {
   return isActive
-    ? "rounded-full bg-ink px-4 py-2 text-sm font-medium text-white"
-    : "rounded-full px-4 py-2 text-sm font-medium text-ink/70 transition hover:bg-black/5 hover:text-ink";
+    ? "rounded-2xl bg-[var(--secondary)] px-4 py-2 text-sm font-semibold text-white shadow-md"
+    : "rounded-2xl px-4 py-2 text-sm font-medium text-ink/70 transition hover:bg-white/75 hover:text-ink";
 }
 
 export function Layout() {
@@ -20,10 +21,10 @@ export function Layout() {
 
   return (
     <div className="min-h-screen bg-transparent text-ink">
-      <header className="sticky top-0 z-30 border-b border-black/5 bg-white/80 backdrop-blur-xl">
+      <header className="sticky top-0 z-30 border-b border-black/5 bg-white/72 backdrop-blur-2xl">
         <div className="mx-auto flex max-w-7xl items-center justify-between px-4 py-4 sm:px-6 lg:px-8">
           <NavLink to="/" className="flex items-center gap-3">
-            <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-pine text-sm font-semibold text-white shadow-soft">
+            <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-[linear-gradient(135deg,var(--secondary),var(--accent))] text-sm font-semibold text-white shadow-soft">
               RD
             </div>
             <div>
@@ -51,7 +52,7 @@ export function Layout() {
         </div>
 
         {open ? (
-          <div className="border-t border-black/5 bg-white px-4 py-4 md:hidden">
+          <div className="border-t border-black/5 bg-white/90 px-4 py-4 md:hidden">
             <div className="flex flex-col gap-2">
               {navigation.map((item) => (
                 <NavLink
@@ -72,13 +73,14 @@ export function Layout() {
         <Outlet />
       </main>
 
-      <footer className="border-t border-black/5 bg-white/70">
+      <footer className="border-t border-black/5 bg-white/72 backdrop-blur-xl">
         <div className="mx-auto flex max-w-7xl flex-col gap-3 px-4 py-8 text-sm text-ink/60 sm:px-6 lg:flex-row lg:items-center lg:justify-between lg:px-8">
-          <p>Ravotsoy Dam olish Maskani. Tabiat bag'rida sokin hordiq.</p>
-          <p>Telegram orqali bron qabul qilinadi. Barcha interfeys o'zbek tilida.</p>
+          <p>Ravotsoy Dam Olish Maskani. Tabiat bag'rida sokin hordiq.</p>
+          <Button to="/bron" variant="secondary" className="w-full sm:w-auto">
+            Bron qilish sahifasi
+          </Button>
         </div>
       </footer>
     </div>
   );
 }
-

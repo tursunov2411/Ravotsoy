@@ -3,12 +3,24 @@
 @tailwind utilities;
 
 :root {
-  color: #111111;
+  --primary: #0f172a;
+  --secondary: #1e293b;
+  --accent: #3b82f6;
+  --text: #102033;
+  --muted: #66768c;
+  --surface: rgba(255, 255, 255, 0.88);
+  --surface-strong: #ffffff;
+  --surface-soft: #f3f6fb;
+  --border: rgba(15, 23, 42, 0.08);
+  --shadow-soft: 0 18px 45px rgba(15, 23, 42, 0.08);
+  --shadow-strong: 0 24px 60px rgba(15, 23, 42, 0.12);
+  color: var(--text);
   background:
-    radial-gradient(circle at top, rgba(216, 197, 176, 0.16), transparent 38%),
-    linear-gradient(180deg, #ffffff 0%, #f8f7f4 100%);
+    radial-gradient(circle at top left, rgba(59, 130, 246, 0.15), transparent 34%),
+    radial-gradient(circle at top right, rgba(216, 197, 176, 0.18), transparent 28%),
+    linear-gradient(180deg, #f8fbff 0%, #eef4fb 52%, #f8f7f4 100%);
   font-family:
-    "SF Pro Display", "Segoe UI", "Helvetica Neue", sans-serif;
+    "Inter", "SF Pro Display", "Segoe UI", "Helvetica Neue", sans-serif;
   text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
@@ -22,7 +34,8 @@ body {
   min-width: 320px;
   min-height: 100vh;
   margin: 0;
-  color: #111111;
+  color: var(--text);
+  background: transparent;
 }
 
 * {
@@ -42,6 +55,56 @@ button {
 }
 
 ::selection {
-  background: rgba(53, 90, 71, 0.14);
+  background: rgba(59, 130, 246, 0.2);
 }
 
+@layer base {
+  body {
+    @apply leading-relaxed;
+  }
+}
+
+@layer components {
+  .surface-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    box-shadow: var(--shadow-soft);
+    backdrop-filter: blur(20px);
+  }
+
+  .surface-card-strong {
+    background: var(--surface-strong);
+    border: 1px solid var(--border);
+    box-shadow: var(--shadow-strong);
+  }
+
+  .surface-panel {
+    background: var(--surface-soft);
+    border: 1px solid rgba(15, 23, 42, 0.06);
+  }
+
+  .premium-button {
+    @apply inline-flex items-center justify-center rounded-2xl px-6 py-3 text-sm font-semibold transition duration-300;
+    background: linear-gradient(135deg, var(--primary), var(--secondary));
+    color: #f8fafc;
+    box-shadow: 0 16px 32px rgba(15, 23, 42, 0.18);
+  }
+
+  .premium-button:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 20px 38px rgba(15, 23, 42, 0.24);
+  }
+
+  .premium-button-secondary {
+    @apply inline-flex items-center justify-center rounded-2xl px-6 py-3 text-sm font-semibold transition duration-300;
+    background: rgba(255, 255, 255, 0.78);
+    color: var(--text);
+    border: 1px solid var(--border);
+    box-shadow: 0 14px 28px rgba(15, 23, 42, 0.08);
+  }
+
+  .premium-button-secondary:hover {
+    transform: translateY(-1px);
+    background: rgba(255, 255, 255, 0.94);
+  }
+}
