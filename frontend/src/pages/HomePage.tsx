@@ -552,9 +552,9 @@ export function HomePage() {
                   <p className="mt-2 text-sm leading-7 text-white/70">Tanlangan paketlar shu sahifada ko'rsatiladi.</p>
                 </div>
                 <div className="rounded-[24px] bg-white/10 p-5">
-                  <p className="text-xs uppercase tracking-[0.28em] text-white/55">Hero media</p>
+                  <p className="text-xs uppercase tracking-[0.28em] text-white/55">Fotolar</p>
                   <p className="mt-3 text-3xl font-semibold text-white">{heroSlides.length}</p>
-                  <p className="mt-2 text-sm leading-7 text-white/70">Slayder shu rasmlar va videolardan tuziladi.</p>
+                  <p className="mt-2 text-sm leading-7 text-white/70">Bosh sahifadagi asosiy surat va videolar soni.</p>
                 </div>
                 <div className="rounded-[24px] bg-white/10 p-5">
                   <p className="text-xs uppercase tracking-[0.28em] text-white/55">Kontaktlar</p>
@@ -564,9 +564,9 @@ export function HomePage() {
               </div>
 
               <div className="rounded-[32px] border border-white/10 bg-white/10 p-5 backdrop-blur-xl">
-                <p className="text-xs uppercase tracking-[0.28em] text-white/55">Slayder</p>
+                <p className="text-xs uppercase tracking-[0.28em] text-white/55">Manzaralar</p>
                 <p className="mt-3 text-lg font-semibold text-white">
-                  {activeHero ? "Faol hero media" : "Hero media hali tanlanmagan"}
+                  {activeHero ? "Ravotsoydan lavhalar" : "Fotolar tez orada qo'shiladi"}
                 </p>
                 <div className="mt-5 flex gap-2">
                   {heroSlides.length > 0 ? (
@@ -583,7 +583,7 @@ export function HomePage() {
                     ))
                   ) : (
                     <div className="rounded-full bg-white/12 px-3 py-1 text-xs text-white/72">
-                      Hero media hali tanlanmagan
+                      Hozircha asosiy fotolar mavjud emas
                     </div>
                   )}
                 </div>

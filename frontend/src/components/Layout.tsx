@@ -60,8 +60,7 @@ export function Layout() {
               {brandMark || "RD"}
             </div>
             <div>
-              <p className="text-xs uppercase tracking-[0.35em] text-ink/40">Dam olish maskani</p>
-              <p className="text-sm font-semibold">{hotelName}</p>
+              <p className="text-base font-semibold leading-tight text-ink">{hotelName}</p>
             </div>
           </NavLink>
 
