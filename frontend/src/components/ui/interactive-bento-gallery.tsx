@@ -15,9 +15,10 @@ type MediaItemProps = {
   item: BentoGalleryItem;
   className?: string;
   onClick?: () => void;
+  fit?: "cover" | "contain";
 };
 
-function MediaItem({ item, className = "", onClick }: MediaItemProps) {
+function MediaItem({ item, className = "", onClick, fit = "cover" }: MediaItemProps) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const [isInView, setIsInView] = useState(false);
   const [isBuffering, setIsBuffering] = useState(item.type === "video");
@@ -115,7 +116,7 @@ function MediaItem({ item, className = "", onClick }: MediaItemProps) {
       <div className={`relative overflow-hidden ${className}`}>
         <video
           ref={videoRef}
-          className="h-full w-full cursor-pointer object-cover"
+          className={`h-full w-full cursor-pointer ${fit === "contain" ? "object-contain" : "object-cover"}`}
           onClick={onClick}
           playsInline
           muted
@@ -141,7 +142,7 @@ function MediaItem({ item, className = "", onClick }: MediaItemProps) {
     <img
       src={item.url}
       alt={item.title}
-      className={`${className} cursor-pointer object-cover`}
+      className={`${className} cursor-pointer ${fit === "contain" ? "object-contain" : "object-cover"}`}
       onClick={onClick}
       loading="lazy"
       decoding="async"
@@ -204,7 +205,8 @@ function GalleryModal({
               >
                 <MediaItem
                   item={selectedItem}
-                  className="h-full max-h-[70vh] w-full"
+                  fit="contain"
+                  className="max-h-[72vh] max-w-full"
                   onClick={onClose}
                 />
                 <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/70 via-black/35 to-transparent p-4 sm:p-6">
