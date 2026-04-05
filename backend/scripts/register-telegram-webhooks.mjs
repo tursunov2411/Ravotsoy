@@ -73,6 +73,7 @@ const managerToken = requireEnv("MANAGER_BOT_TOKEN");
 const customerCommands = [
   { command: "start", description: "Asosiy menyu" },
   { command: "book", description: "Bron boshlash" },
+  { command: "mybookings", description: "Mening bronlarim" },
   { command: "resources", description: "Mavjud joylar" },
   { command: "contact", description: "Aloqa" },
   { command: "help", description: "Yordam" },

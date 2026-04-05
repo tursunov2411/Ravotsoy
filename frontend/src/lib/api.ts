@@ -14,6 +14,7 @@ import type {
   PublicContact,
   PackageInput,
   PackageRecord,
+  ResourceRecord,
   ResourceSelection,
   SightseeingPlace,
   SiteSettings,
@@ -274,6 +275,42 @@ export async function deletePackage(id: string) {
   }
 
   const client = ensureSupabase();
+  const { data: packageMedia, error: packageMediaError } = await client
+    .from("media")
+    .select("storage_path")
+    .eq("package_id", id);
+
+  if (packageMediaError) {
+    throw packageMediaError;
+  }
+
+  const storagePaths = (Array.isArray(packageMedia) ? packageMedia : [])
+    .map((item) => String(item.storage_path ?? "").trim())
+    .filter(Boolean);
+
+  if (storagePaths.length > 0) {
+    const { error: storageError } = await client.storage.from(packageImagesBucket).remove(storagePaths);
+
+    if (storageError) {
+      console.error(storageError);
+    }
+  }
+
+  const { error: bookingError } = await client
+    .from("bookings")
+    .update({ package_id: null })
+    .eq("package_id", id);
+
+  if (bookingError) {
+    throw bookingError;
+  }
+
+  const { error: mediaDeleteError } = await client.from("media").delete().eq("package_id", id);
+
+  if (mediaDeleteError) {
+    throw mediaDeleteError;
+  }
+
   const { error } = await client.from("packages").delete().eq("id", id);
 
   if (error) {
@@ -462,6 +499,58 @@ export async function upsertPricingRule(payload: PricingRuleRecord) {
   } satisfies PricingRuleRecord;
 }
 
+export async function getResources() {
+  if (!hasSupabaseConfig) {
+    return [] satisfies ResourceRecord[];
+  }
+
+  const client = ensureSupabase();
+  const { data, error } = await client
+    .from("resources")
+    .select("id, type, name, capacity, is_active")
+    .order("type", { ascending: true })
+    .order("name", { ascending: true });
+
+  if (error) {
+    throw error;
+  }
+
+  return (data as Array<Record<string, unknown>>).map((item) => ({
+    id: String(item.id ?? ""),
+    type: String(item.type ?? ""),
+    name: String(item.name ?? ""),
+    capacity: Number(item.capacity ?? 0),
+    is_active: Boolean(item.is_active),
+  }));
+}
+
+export async function upsertResource(payload: ResourceRecord) {
+  const client = ensureSupabase();
+  const { data, error } = await client
+    .from("resources")
+    .update({
+      type: payload.type,
+      name: payload.name,
+      capacity: payload.capacity,
+      is_active: payload.is_active,
+    })
+    .eq("id", payload.id)
+    .select("id, type, name, capacity, is_active")
+    .single();
+
+  if (error) {
+    throw error;
+  }
+
+  return {
+    id: String(data.id ?? ""),
+    type: String(data.type ?? ""),
+    name: String(data.name ?? ""),
+    capacity: Number(data.capacity ?? 0),
+    is_active: Boolean(data.is_active),
+  } satisfies ResourceRecord;
+}
+
 export async function createBooking(payload: {
   resourceSelections: ResourceSelection[];
   name: string;
@@ -539,9 +628,11 @@ export async function quoteBooking(payload: {
 
 export async function createTelegramPrefill(payload: {
   resourceSelections: ResourceSelection[];
-  guests: number;
+  guests?: number;
+  estimatedGuests?: number;
   date_start: string;
   date_end?: string | null;
+  guestConfirmationRequired?: boolean;
 }) {
   const response = await fetch(`${backendUrl}/api/telegram/prefill`, {
     method: "POST",
@@ -551,8 +642,10 @@ export async function createTelegramPrefill(payload: {
     body: JSON.stringify({
       resourceSelections: payload.resourceSelections,
       peopleCount: payload.guests,
+      estimatedPeopleCount: payload.estimatedGuests,
       startDate: payload.date_start,
       endDate: payload.date_end ?? null,
+      guestConfirmationRequired: payload.guestConfirmationRequired ?? false,
       source: "website",
     }),
   });

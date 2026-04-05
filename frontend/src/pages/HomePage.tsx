@@ -377,15 +377,12 @@ export function HomePage() {
         <AnimatedSection key={section.id} className="mt-16">
           <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
             <SectionHeading
-              eyebrow={section.eyebrow || "Joylar"}
-              title={section.title || "Resurs konfiguratori"}
-              description={
-                section.description
-                || "Xona va tapchanlarni tanlang, narxni hisoblang va bronni Telegram bot orqali yakunlang."
-              }
+              eyebrow="Xizmatlar"
+              title="Ravotsoy xizmatlari"
+              description="Xona va tapchanlarni tanlang, sanani belgilang va bronni Telegram bot orqali yakunlang."
             />
             <Link to="/bron" className="inline-flex items-center gap-2 text-sm font-medium text-ink/60">
-              Konfiguratorga o'tish
+              Xizmatlarni ochish
               <ArrowRight size={16} />
             </Link>
           </div>
@@ -644,7 +641,7 @@ export function HomePage() {
                 to="/bron"
                 className="inline-flex items-center justify-center rounded-full bg-white px-6 py-3 text-sm font-medium text-ink transition hover:bg-pearl"
               >
-                Konfiguratorni ochish
+                Xizmatlarni ochish
               </Link>
               <Link
                 to="/bron"

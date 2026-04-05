@@ -6,12 +6,13 @@ import {
 } from "./shared.js";
 import { createBooking, getTripBuilderOptions, quoteBooking } from "../services/bookingEngine.js";
 import { buildSelectionLabel, normalizeResourceSelections, summarizeResourceSelections } from "../services/bookingMetadata.js";
-import { submitBookingProof, upsertTelegramUser } from "../services/proofService.js";
+import { fetchBookingsForTelegramUser, submitBookingProof, upsertTelegramUser } from "../services/proofService.js";
 import { getTelegramPrefill } from "../services/telegramFlow.js";
 
 const BUTTONS = {
   booking: "Bron boshlash",
   resources: "Joylar",
+  myBookings: "Mening bronlarim",
   contact: "Aloqa",
   help: "Yordam",
 };
@@ -168,6 +169,7 @@ function buildMainKeyboard() {
   return {
     keyboard: [
       [{ text: BUTTONS.booking }, { text: BUTTONS.resources }],
+      [{ text: BUTTONS.myBookings }],
       [{ text: BUTTONS.contact }, { text: BUTTONS.help }],
     ],
     resize_keyboard: true,
@@ -241,8 +243,11 @@ function buildBookingSummary(data, quote = null) {
   const lines = [
     "Bron xulosasi:",
     `Tanlov: ${summarizeSelections(data.selections ?? [])}`,
-    `Mehmonlar: ${data.guests ?? 0} kishi`,
   ];
+
+  if (Number(data.guests ?? 0) > 0) {
+    lines.push(`Mehmonlar: ${data.guests} kishi`);
+  }
 
   if (data.date_start) {
     lines.push(
@@ -284,6 +289,8 @@ function buildPaymentMessage(result) {
 
   if (payment.cardNumber) {
     lines.push(`Karta raqami: ${payment.cardNumber}`);
+  } else {
+    lines.push("Karta raqami: admin panelda kiritilmagan");
   }
 
   if (payment.cardHolder) {
@@ -312,6 +319,22 @@ function buildBookingConfirmationKeyboard() {
       [{ text: "Bekor qilish", callback_data: CALLBACKS.cancel }],
     ],
   };
+}
+
+function buildTrackingStatusLabel(status) {
+  if (status === "awaiting confirmation") {
+    return "awaiting confirmation";
+  }
+
+  if (status === "confirmed") {
+    return "confirmed";
+  }
+
+  if (status === "rejected") {
+    return "rejected";
+  }
+
+  return "pending";
 }
 
 function buildResourceMenuKeyboard(options, selections) {
@@ -495,6 +518,35 @@ export function createCustomerBot() {
     });
   }
 
+  async function sendMyBookings(chatId, telegramId) {
+    const bookings = await fetchBookingsForTelegramUser(telegramId);
+
+    if (bookings.length === 0) {
+      await telegram.sendMessage(chatId, "Sizda hozircha bronlar mavjud emas.", {
+        reply_markup: buildMainKeyboard(),
+      });
+      return;
+    }
+
+    const lines = ["My bookings", ""];
+
+    for (const booking of bookings) {
+      lines.push(`Bron ID: ${booking.id}`);
+      lines.push(`Tanlov: ${booking.booking_label || booking.resource_summary || "Ko'rsatilmagan"}`);
+      lines.push(`Status: ${buildTrackingStatusLabel(booking.tracking_status)}`);
+      lines.push(
+        booking.date_end
+          ? `Sana: ${booking.date_start} dan ${booking.date_end} gacha`
+          : `Sana: ${booking.date_start}`,
+      );
+      lines.push("");
+    }
+
+    await telegram.sendMessage(chatId, lines.join("\n").trim(), {
+      reply_markup: buildMainKeyboard(),
+    });
+  }
+
   async function promptResourceMenu(chatId, state, intro = "Kerakli resurslarni tanlang.") {
     const options = await fetchTripOptions();
 
@@ -534,7 +586,7 @@ export function createCustomerBot() {
 
   async function promptPhone(chatId, state) {
     state.step = "phone";
-    await telegram.sendMessage(chatId, "Telefon raqamingizni yuboring:", {
+    await telegram.sendMessage(chatId, "Telefon raqamingizni yuboring yoki pastdagi tugma bilan ulashing:", {
       reply_markup: buildContactKeyboard(),
     });
   }
@@ -567,15 +619,37 @@ export function createCustomerBot() {
   }
 
   async function startPrefilledConversation(chatId, payload) {
-    const state = setChatState(chatId, "name", {
-      guests: Number(payload.peopleCount ?? 0),
+    const guests = Number(payload.peopleCount ?? 0);
+    const estimatedPeopleCount = Number(payload.estimatedPeopleCount ?? 0);
+    const state = setChatState(chatId, guests > 0 ? "name" : "guests", {
+      guests,
+      estimatedPeopleCount,
+      guestConfirmationRequired: Boolean(payload.guestConfirmationRequired),
       date_start: String(payload.startDate ?? ""),
       date_end: payload.endDate ? String(payload.endDate) : null,
       selections: normalizeResourceSelections(payload.resourceSelections ?? []),
       quote: payload.quote ?? null,
     });
 
-    await promptName(chatId, state, buildBookingSummary(state.data, state.data.quote));
+    if (guests > 0) {
+      await promptName(chatId, state, buildBookingSummary(state.data, state.data.quote));
+      return;
+    }
+
+    await telegram.sendMessage(
+      chatId,
+      [
+        "Veb-saytdagi tanlovingiz qabul qilindi.",
+        buildBookingSummary(state.data, state.data.quote),
+        "",
+        estimatedPeopleCount > 0
+          ? `Boshlang'ich hisob ${estimatedPeopleCount} kishi uchun tayyorlandi. Yakuniy narx uchun nechta mehmon bo'lishini kiriting.`
+          : "Yakuniy narx uchun nechta mehmon bo'lishini kiriting.",
+      ].join("\n"),
+      {
+        reply_markup: buildMainKeyboard(),
+      },
+    );
   }
 
   async function startBookingConversation(chatId) {
@@ -936,6 +1010,11 @@ export function createCustomerBot() {
       return;
     }
 
+    if (isSlashCommand(text, "mybookings")) {
+      await sendMyBookings(chatId, message?.from?.id);
+      return;
+    }
+
     if (isSlashCommand(text, "help")) {
       await telegram.sendMessage(
         chatId,
@@ -954,6 +1033,11 @@ export function createCustomerBot() {
 
     if (text === BUTTONS.contact) {
       await sendContacts(chatId);
+      return;
+    }
+
+    if (text === BUTTONS.myBookings || text === "My bookings") {
+      await sendMyBookings(chatId, message?.from?.id);
       return;
     }
 
@@ -1002,6 +1086,12 @@ export function createCustomerBot() {
       }
 
       state.data.guests = guests;
+
+      if ((state.data.selections ?? []).length > 0 && state.data.date_start) {
+        await promptName(chatId, state, buildBookingSummary(state.data, state.data.quote));
+        return;
+      }
+
       await promptResourceMenu(chatId, state);
       return;
     }

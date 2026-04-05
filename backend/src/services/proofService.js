@@ -128,6 +128,26 @@ function normalizeBooking(data) {
   };
 }
 
+function normalizeTrackingStatus(booking) {
+  if (!booking) {
+    return "pending";
+  }
+
+  if (booking.status === "proof_submitted" || booking.payment_status === "pending_verification") {
+    return "awaiting confirmation";
+  }
+
+  if (booking.status === "confirmed" || booking.status === "completed") {
+    return "confirmed";
+  }
+
+  if (booking.status === "rejected" || booking.status === "cancelled") {
+    return "rejected";
+  }
+
+  return "pending";
+}
+
 async function uploadProofFile(bookingId, file) {
   const baseName = sanitizePathPart(file?.originalName ?? file?.fileName ?? "proof");
   const extension = getExtensionFromName(baseName, file?.contentType === "application/pdf" ? "pdf" : "jpg");
@@ -226,6 +246,49 @@ export async function upsertTelegramUser({ telegramId, name, phone, role = "cust
   }
 
   return String(data.id);
+}
+
+export async function fetchBookingsForTelegramUser(telegramId) {
+  const normalizedTelegramId = Number(telegramId);
+
+  if (!Number.isInteger(normalizedTelegramId) || normalizedTelegramId <= 0) {
+    return [];
+  }
+
+  const { data: user, error: userError } = await supabase
+    .from("users")
+    .select("id")
+    .eq("telegram_id", normalizedTelegramId)
+    .maybeSingle();
+
+  if (userError) {
+    throw userError;
+  }
+
+  if (!user?.id) {
+    return [];
+  }
+
+  const { data, error } = await supabase
+    .from("bookings")
+    .select(
+      "id, booking_label, requested_resources, name, phone, email, guests, people_count, date_start, date_end, start_time, end_time, total_price, estimated_price, source, status, payment_status, booking_resources(quantity, resources(id, type, name, capacity))",
+    )
+    .eq("user_id", user.id)
+    .order("created_at", { ascending: false })
+    .limit(10);
+
+  if (error) {
+    throw error;
+  }
+
+  return (Array.isArray(data) ? data : [])
+    .map((item) => normalizeBooking(item))
+    .filter(Boolean)
+    .map((booking) => ({
+      ...booking,
+      tracking_status: normalizeTrackingStatus(booking),
+    }));
 }
 
 export async function fetchBookingContext(bookingId) {

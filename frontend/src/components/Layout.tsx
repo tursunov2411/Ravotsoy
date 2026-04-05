@@ -8,7 +8,7 @@ import { getPhoneLink, getTelegramLink } from "../lib/utils";
 
 const navigation = [
   { to: "/", label: "Bosh sahifa" },
-  { to: "/bron", label: "Konfigurator" },
+  { to: "/bron", label: "Xizmatlar" },
 ];
 
 function navClass(isActive: boolean) {
@@ -79,7 +79,7 @@ export function Layout() {
               </a>
             ) : null}
             <Button to="/bron" className="px-5 py-2.5">
-              Konfigurator
+              Xizmatlar
             </Button>
           </div>
 
@@ -163,7 +163,7 @@ export function Layout() {
               </a>
             ) : null}
             <Button to="/bron" variant="secondary" className="w-full sm:w-auto">
-              Konfigurator
+              Xizmatlar
             </Button>
             <NavLink
               to="/admin-login"

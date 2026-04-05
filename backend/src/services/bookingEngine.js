@@ -150,6 +150,24 @@ function normalizeBookingRecord(data) {
   };
 }
 
+async function estimatePeopleCount(resourceSelections) {
+  const normalizedSelections = normalizeResourceSelections(resourceSelections);
+
+  if (normalizedSelections.length === 0) {
+    throw new Error("resourceSelections are required");
+  }
+
+  const options = await getTripBuilderOptions();
+  const optionByType = new Map(options.map((item) => [item.resourceType, item]));
+  const estimated = normalizedSelections.reduce((sum, selection) => {
+    const option = optionByType.get(selection.resourceType);
+    const includedPeople = Math.max(Number(option?.maxIncludedPeople ?? option?.unitCapacity ?? 0), 0);
+    return sum + includedPeople * selection.quantity;
+  }, 0);
+
+  return Math.max(estimated, 1);
+}
+
 function calculateRequiredDeposit(totalPrice, ratio) {
   const normalizedTotal = Math.max(Number(totalPrice ?? 0), 0);
   const normalizedRatio = Math.min(Math.max(Number(ratio ?? 0.3), 0.01), 1);
@@ -453,23 +471,26 @@ export async function createBooking(rawRequest) {
 }
 
 export async function createTelegramPrefill(rawRequest) {
-  const peopleCount = requirePositiveInteger(
-    rawRequest.peopleCount ?? rawRequest.people_count ?? rawRequest.guests,
-    "peopleCount",
+  const resourceSelections = normalizeSelectionsInput(rawRequest);
+  const requestedPeopleCount = rawRequest.peopleCount ?? rawRequest.people_count ?? rawRequest.guests;
+  const guestConfirmationRequired = Boolean(
+    rawRequest.guestConfirmationRequired ?? rawRequest.guest_confirmation_required,
   );
+  const estimatedPeopleCount = requestedPeopleCount
+    ? requirePositiveInteger(requestedPeopleCount, "peopleCount")
+    : await estimatePeopleCount(resourceSelections);
 
-  if (peopleCount > MAX_INDOOR_CAPACITY) {
+  if (estimatedPeopleCount > MAX_INDOOR_CAPACITY) {
     throw new Error(`peopleCount must not exceed ${MAX_INDOOR_CAPACITY}`);
   }
 
-  const resourceSelections = normalizeSelectionsInput(rawRequest);
   const window = buildBookingWindow(
     rawRequest.startDate ?? rawRequest.date_start,
     rawRequest.endDate ?? rawRequest.date_end,
   );
   const quote = await quoteBooking({
     resourceSelections,
-    peopleCount,
+    peopleCount: estimatedPeopleCount,
     startDate: window.startDate,
     endDate: window.endDate,
   });
@@ -479,7 +500,9 @@ export async function createTelegramPrefill(rawRequest) {
   }
 
   const stored = await storeTelegramPrefill({
-    peopleCount,
+    peopleCount: guestConfirmationRequired ? null : estimatedPeopleCount,
+    estimatedPeopleCount,
+    guestConfirmationRequired,
     startDate: window.startDate,
     endDate: window.endDate,
     resourceSelections: resourceSelections.map((item) => ({

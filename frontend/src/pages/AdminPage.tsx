@@ -36,6 +36,7 @@ import {
   getMediaAssets,
   getPackages,
   getPricingRules,
+  getResources,
   getSiteSettings,
   isAdminUser,
   onAuthChange,
@@ -46,6 +47,7 @@ import {
   uploadPackageImage,
   upsertHomeSection,
   upsertPackage,
+  upsertResource,
   upsertSiteSettings,
 } from "../lib/api";
 import { hasSupabaseConfig } from "../lib/supabase";
@@ -61,6 +63,7 @@ import type {
   PackageRecord,
   PricingRuleRecord,
   PublicContact,
+  ResourceRecord,
   SightseeingPlace,
   SiteSettings,
 } from "../lib/types";
@@ -424,6 +427,7 @@ export function AdminPage() {
   const [homeSections, setHomeSections] = useState<ContentSection[]>([]);
   const [siteSettings, setSiteSettings] = useState<Omit<SiteSettings, "id">>(emptySiteSettings);
   const [pricingRules, setPricingRules] = useState<PricingRuleRecord[]>([]);
+  const [resources, setResources] = useState<ResourceRecord[]>([]);
   const [packageForm, setPackageForm] = useState<PackageInput>(createEmptyPackage());
   const [packageImageFiles, setPackageImageFiles] = useState<File[]>([]);
   const [editingPackageId, setEditingPackageId] = useState<string | null>(null);
@@ -455,13 +459,14 @@ export function AdminPage() {
   };
 
   const refresh = async () => {
-    const [packagesData, bookingsData, mediaData, settingsData, sectionsData, pricingRulesData] = await Promise.all([
+    const [packagesData, bookingsData, mediaData, settingsData, sectionsData, pricingRulesData, resourcesData] = await Promise.all([
       getPackages(),
       getAdminBookings(),
       getMediaAssets(),
       getSiteSettings(),
       getHomeSections(),
       getPricingRules(),
+      getResources(),
     ]);
 
     setPackages(packagesData);
@@ -469,6 +474,7 @@ export function AdminPage() {
     setMedia(mediaData);
     setHomeSections(sectionsData);
     setPricingRules(pricingRulesData);
+    setResources(resourcesData);
     setSiteSettings({
       hotel_name: settingsData.hotel_name ?? "",
       description: settingsData.description ?? "",
@@ -634,6 +640,20 @@ export function AdminPage() {
     );
 
     setPricingRules(savedRules);
+  };
+
+  const saveResources = async () => {
+    const savedResources = await Promise.all(
+      resources.map((resource) =>
+        upsertResource({
+          ...resource,
+          name: resource.name.trim(),
+          capacity: Math.max(Number(resource.capacity || 0), 1),
+        }),
+      ),
+    );
+
+    setResources(savedResources);
   };
 
   const handlePackageSubmit = async (event: FormEvent<HTMLFormElement>) => {
@@ -1269,6 +1289,93 @@ export function AdminPage() {
                     </div>
                   </div>
                 ))}
+              </div>
+            </div>
+
+            <div className="space-y-4 rounded-[28px] bg-pearl p-5 lg:col-span-2">
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                <div>
+                  <p className="text-lg font-semibold text-ink">Resurs birliklari</p>
+                  <p className="mt-1 text-sm leading-6 text-ink/58">
+                    Sayt va Telegram botda ko'rinadigan haqiqiy xona va tapchan birliklari shu yerda boshqariladi.
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => void runAction(saveResources, "Resurslar saqlandi.")}
+                  className="inline-flex items-center justify-center gap-2 rounded-full bg-ink px-5 py-3 text-sm font-medium text-white transition hover:bg-pine"
+                >
+                  <Save size={16} />
+                  Resurslarni saqlash
+                </button>
+              </div>
+
+              <div className="grid gap-4">
+                {resources.map((resource) => (
+                  <div key={resource.id} className="rounded-[24px] border border-black/8 bg-white/85 p-4">
+                    <div className="grid gap-3 lg:grid-cols-[1.1fr_0.7fr_0.6fr_0.5fr]">
+                      <label className="space-y-2 text-sm text-ink/70">
+                        <span>Nomi</span>
+                        <input
+                          value={resource.name}
+                          onChange={(event) =>
+                            setResources((current) =>
+                              current.map((item) =>
+                                item.id === resource.id ? { ...item, name: event.target.value } : item,
+                              ),
+                            )
+                          }
+                          className={inputClassName()}
+                        />
+                      </label>
+
+                      <label className="space-y-2 text-sm text-ink/70">
+                        <span>Turi</span>
+                        <input value={pricingRuleLabel(resource.type)} disabled className={inputClassName()} />
+                      </label>
+
+                      <label className="space-y-2 text-sm text-ink/70">
+                        <span>Sig'imi</span>
+                        <input
+                          type="number"
+                          min={1}
+                          value={resource.capacity}
+                          onChange={(event) =>
+                            setResources((current) =>
+                              current.map((item) =>
+                                item.id === resource.id
+                                  ? { ...item, capacity: Math.max(Number(event.target.value || 0), 1) }
+                                  : item,
+                              ),
+                            )
+                          }
+                          className={inputClassName()}
+                        />
+                      </label>
+
+                      <label className="flex items-end gap-3 rounded-[20px] border border-black/8 bg-pearl/60 px-4 py-3 text-sm text-ink/70">
+                        <input
+                          type="checkbox"
+                          checked={resource.is_active}
+                          onChange={(event) =>
+                            setResources((current) =>
+                              current.map((item) =>
+                                item.id === resource.id ? { ...item, is_active: event.target.checked } : item,
+                              ),
+                            )
+                          }
+                        />
+                        <span>Faol</span>
+                      </label>
+                    </div>
+                  </div>
+                ))}
+
+                {resources.length === 0 ? (
+                  <div className="rounded-[24px] border border-dashed border-black/10 bg-white/70 p-5 text-sm text-ink/58">
+                    Resurs birliklari topilmadi.
+                  </div>
+                ) : null}
               </div>
             </div>
 

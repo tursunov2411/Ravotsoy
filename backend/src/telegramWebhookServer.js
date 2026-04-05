@@ -28,6 +28,8 @@ function normalizeEnginePayload(payload) {
     phone: record.phone,
     email: record.email ?? "",
     peopleCount: record.peopleCount ?? record.people_count ?? record.guests,
+    estimatedPeopleCount: record.estimatedPeopleCount ?? record.estimated_people_count ?? null,
+    guestConfirmationRequired: record.guestConfirmationRequired ?? record.guest_confirmation_required ?? false,
     startDate: record.startDate ?? record.date_start,
     endDate: record.endDate ?? record.date_end ?? null,
     source: record.source ?? "website",

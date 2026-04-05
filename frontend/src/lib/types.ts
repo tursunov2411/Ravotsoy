@@ -89,6 +89,14 @@ export type PricingRuleRecord = {
   includes_tapchan: boolean;
 };
 
+export type ResourceRecord = {
+  id: string;
+  type: ResourceType | string;
+  name: string;
+  capacity: number;
+  is_active: boolean;
+};
+
 export type PaymentConfig = {
   hotelName?: string;
   cardNumber?: string;
