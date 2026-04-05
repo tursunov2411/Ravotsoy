@@ -573,7 +573,11 @@ export function AdminPage() {
       setNotice("Paket muvaffaqiyatli saqlandi.");
     } catch (submitError) {
       console.error(submitError);
-      setError("Paketni saqlashda xatolik yuz berdi.");
+      setError(
+        submitError instanceof Error && submitError.message
+          ? `Paketni saqlashda xatolik yuz berdi: ${submitError.message}`
+          : "Paketni saqlashda xatolik yuz berdi.",
+      );
     } finally {
       setWorking(false);
     }
@@ -1624,7 +1628,6 @@ export function AdminPage() {
                           <label className="space-y-2 text-sm text-ink/70">
                             <span>Redirect URL</span>
                             <input
-                              type="url"
                               value={readFaqCtaUrl(section)}
                               onChange={(event) =>
                                 updateSectionState(section.id, (current) => ({
@@ -1638,6 +1641,9 @@ export function AdminPage() {
                               placeholder="https://t.me/..."
                               className={inputClassName()}
                             />
+                            <p className="text-xs leading-5 text-ink/45">
+                              Telegram username (`@username`) yoki to'liq havola kiriting.
+                            </p>
                           </label>
 
                           <div className="flex items-end">

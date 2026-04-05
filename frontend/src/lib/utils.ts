@@ -39,6 +39,10 @@ export function getTelegramProfileLink(value: string) {
     return "";
   }
 
+  if (/^https?:\/\//i.test(trimmed)) {
+    return trimmed;
+  }
+
   const normalized = trimmed
     .replace(/^https?:\/\/t\.me\//i, "")
     .replace(/^@/, "")
