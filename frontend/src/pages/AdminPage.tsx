@@ -45,6 +45,7 @@ import {
 } from "../lib/api";
 import { hasSupabaseConfig } from "../lib/supabase";
 import type {
+  AboutStat,
   BookingRecord,
   ContentSection,
   ContentSectionType,
@@ -94,6 +95,16 @@ function createFeatureCard(): HomeFeatureCard {
   return { id: crypto.randomUUID(), title: "", description: "", icon: "sparkles" };
 }
 
+function createAboutStat(): AboutStat {
+  return {
+    id: crypto.randomUUID(),
+    value: "",
+    label: "",
+    description: "",
+    icon: "sparkles",
+  };
+}
+
 function createSightseeingPlace(): SightseeingPlace {
   return { id: crypto.randomUUID(), name: "", description: "" };
 }
@@ -119,7 +130,9 @@ function createSection(type: ContentSectionType, sortOrder: number): Omit<Conten
     title,
     description: "",
     content:
-      type === "highlights"
+      type === "about"
+        ? { stats: [createAboutStat(), createAboutStat()] }
+        : type === "highlights"
         ? { cards: [createFeatureCard(), createFeatureCard(), createFeatureCard()] }
         : type === "sightseeing"
           ? { places: [createSightseeingPlace(), createSightseeingPlace()] }
@@ -150,6 +163,30 @@ function readFeatureCards(section: ContentSection): HomeFeatureCard[] {
       description: String(record.description ?? ""),
       icon:
         icon === "trees" || icon === "sparkles" || icon === "message-circle" || icon === "map-pinned"
+          ? icon
+          : "sparkles",
+    };
+  });
+}
+
+function readAboutStats(section: ContentSection): AboutStat[] {
+  const value = section.content.stats;
+
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  return value.map((item) => {
+    const record = item as Record<string, unknown>;
+    const icon = String(record.icon ?? "sparkles") as AboutStat["icon"];
+
+    return {
+      id: String(record.id ?? crypto.randomUUID()),
+      value: String(record.value ?? ""),
+      label: String(record.label ?? ""),
+      description: String(record.description ?? ""),
+      icon:
+        icon === "calendar" || icon === "users" || icon === "shield" || icon === "sparkles"
           ? icon
           : "sparkles",
     };
@@ -1095,6 +1132,7 @@ export function AdminPage() {
         >
           <div className="space-y-5">
             {orderedSections.map((section, index) => {
+              const aboutStats = readAboutStats(section);
               const cards = readFeatureCards(section);
               const places = readPlaces(section);
 
@@ -1209,6 +1247,126 @@ export function AdminPage() {
                       />
                     </label>
                   </div>
+
+                  {section.section_type === "about" ? (
+                    <div className="mt-5 rounded-[24px] bg-white/80 p-4">
+                      <div className="flex items-center justify-between gap-3">
+                        <p className="text-sm font-medium text-ink">Ishonch ko'rsatkichlari</p>
+                        <button
+                          type="button"
+                          onClick={() =>
+                            updateSectionState(section.id, (current) => ({
+                              ...current,
+                              content: {
+                                ...current.content,
+                                stats: [...readAboutStats(current), createAboutStat()],
+                              },
+                            }))
+                          }
+                          className="rounded-full border border-black/10 bg-white px-4 py-2 text-sm font-medium text-ink transition hover:bg-pearl"
+                        >
+                          Ko'rsatkich qo'shish
+                        </button>
+                      </div>
+
+                      <div className="mt-4 grid gap-4">
+                        {aboutStats.map((stat) => (
+                          <div
+                            key={stat.id}
+                            className="grid gap-4 rounded-[20px] border border-black/8 bg-pearl/70 p-4 lg:grid-cols-[0.65fr_1fr_1.4fr_auto]"
+                          >
+                            <input
+                              value={stat.value}
+                              onChange={(event) =>
+                                updateSectionState(section.id, (current) => ({
+                                  ...current,
+                                  content: {
+                                    ...current.content,
+                                    stats: readAboutStats(current).map((item) =>
+                                      item.id === stat.id ? { ...item, value: event.target.value } : item,
+                                    ),
+                                  },
+                                }))
+                              }
+                              placeholder="4+"
+                              className={inputClassName()}
+                            />
+                            <input
+                              value={stat.label}
+                              onChange={(event) =>
+                                updateSectionState(section.id, (current) => ({
+                                  ...current,
+                                  content: {
+                                    ...current.content,
+                                    stats: readAboutStats(current).map((item) =>
+                                      item.id === stat.id ? { ...item, label: event.target.value } : item,
+                                    ),
+                                  },
+                                }))
+                              }
+                              placeholder="Yillik tajriba"
+                              className={inputClassName()}
+                            />
+                            <input
+                              value={stat.description}
+                              onChange={(event) =>
+                                updateSectionState(section.id, (current) => ({
+                                  ...current,
+                                  content: {
+                                    ...current.content,
+                                    stats: readAboutStats(current).map((item) =>
+                                      item.id === stat.id ? { ...item, description: event.target.value } : item,
+                                    ),
+                                  },
+                                }))
+                              }
+                              placeholder="Qisqa izoh"
+                              className={inputClassName()}
+                            />
+                            <div className="flex gap-2">
+                              <select
+                                value={stat.icon}
+                                onChange={(event) =>
+                                  updateSectionState(section.id, (current) => ({
+                                    ...current,
+                                    content: {
+                                      ...current.content,
+                                      stats: readAboutStats(current).map((item) =>
+                                        item.id === stat.id
+                                          ? { ...item, icon: event.target.value as AboutStat["icon"] }
+                                          : item,
+                                      ),
+                                    },
+                                  }))
+                                }
+                                className={inputClassName()}
+                              >
+                                <option value="calendar">calendar</option>
+                                <option value="users">users</option>
+                                <option value="shield">shield</option>
+                                <option value="sparkles">sparkles</option>
+                              </select>
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  updateSectionState(section.id, (current) => ({
+                                    ...current,
+                                    content: {
+                                      ...current.content,
+                                      stats: readAboutStats(current).filter((item) => item.id !== stat.id),
+                                    },
+                                  }))
+                                }
+                                className="inline-flex items-center justify-center rounded-full border border-red-200 px-3 py-2 text-red-700 transition hover:bg-red-50"
+                              >
+                                <Trash2 size={14} />
+                              </button>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  ) : null}
 
                   {section.section_type === "highlights" ? (
                     <div className="mt-5 rounded-[24px] bg-white/80 p-4">

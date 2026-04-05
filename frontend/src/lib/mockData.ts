@@ -1,4 +1,4 @@
-import type { BookingRecord, ContentSection, MediaAsset, PackageRecord, SiteSettings } from "./types";
+import type { AboutStat, BookingRecord, ContentSection, MediaAsset, PackageRecord, SiteSettings } from "./types";
 
 export const mockPackages: PackageRecord[] = [
   {
@@ -107,7 +107,24 @@ export const mockHomeSections: ContentSection[] = [
     eyebrow: "Biz haqimizda",
     title: "Ravotsoyda tabiiy tinchlik va qulay dam olish birlashadi",
     description: "",
-    content: {},
+    content: {
+      stats: [
+        {
+          id: "years",
+          value: "4+",
+          label: "Yillik tajriba",
+          description: "Tabiat bag'rida mehmon kutish va xizmat ko'rsatish tajribasi.",
+          icon: "calendar",
+        },
+        {
+          id: "guests",
+          value: "5000+",
+          label: "Mehmonlar",
+          description: "Ravotsoyda hordiq chiqargan oilalar, sayohatchilar va guruhlar.",
+          icon: "users",
+        },
+      ] satisfies AboutStat[],
+    },
     sort_order: 10,
     is_enabled: true,
   },

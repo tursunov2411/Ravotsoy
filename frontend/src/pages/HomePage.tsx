@@ -1,11 +1,14 @@
 import {
   ArrowRight,
+  CalendarRange,
   ExternalLink,
   MapPinned,
   MessageCircleMore,
   Phone,
+  ShieldCheck,
   Sparkles,
   Trees,
+  Users,
 } from "lucide-react";
 import { motion } from "framer-motion";
 import { useEffect, useMemo, useState } from "react";
@@ -17,6 +20,7 @@ import InteractiveBentoGallery, {
 } from "../components/ui/interactive-bento-gallery";
 import { getHomeSections, getMediaAssets, getPackages, getSiteSettings } from "../lib/api";
 import type {
+  AboutStat,
   ContentSection,
   HomeFeatureCard,
   MediaAsset,
@@ -115,6 +119,46 @@ function parseSightseeingPlaces(value: unknown): SightseeingPlace[] {
     .filter((item): item is SightseeingPlace => Boolean(item));
 }
 
+function parseAboutStats(value: unknown): AboutStat[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  return value
+    .map((item) => {
+      const record = item as Record<string, unknown>;
+      const icon = String(record.icon ?? "sparkles") as AboutStat["icon"];
+
+      return {
+        id: String(record.id ?? crypto.randomUUID()),
+        value: String(record.value ?? "").trim(),
+        label: String(record.label ?? "").trim(),
+        description: String(record.description ?? "").trim(),
+        icon:
+          icon === "calendar" || icon === "users" || icon === "shield" || icon === "sparkles"
+            ? icon
+            : "sparkles",
+      } satisfies AboutStat;
+    })
+    .filter((item) => item.value || item.label || item.description);
+}
+
+function AboutStatIcon({ icon }: { icon: AboutStat["icon"] }) {
+  if (icon === "calendar") {
+    return <CalendarRange className="text-white" size={20} />;
+  }
+
+  if (icon === "users") {
+    return <Users className="text-white" size={20} />;
+  }
+
+  if (icon === "shield") {
+    return <ShieldCheck className="text-white" size={20} />;
+  }
+
+  return <Sparkles className="text-white" size={20} />;
+}
+
 export function HomePage() {
   const [sections, setSections] = useState<ContentSection[]>([]);
   const [packages, setPackages] = useState<PackageRecord[]>([]);
@@ -208,6 +252,8 @@ export function HomePage() {
 
   const renderSection = (section: ContentSection) => {
     if (section.section_type === "about") {
+      const aboutStats = parseAboutStats(section.content.stats);
+
       return (
         <AnimatedSection key={section.id} className="mt-16">
           <div className="grid gap-6 lg:grid-cols-[1.05fr_0.95fr]">
@@ -216,22 +262,38 @@ export function HomePage() {
               <p className="mt-5 text-sm leading-8 text-ink/64">{aboutText}</p>
             </div>
 
-            <div className="grid gap-4 sm:grid-cols-2">
-              <div className="rounded-[32px] bg-[#07111f] p-6 text-white shadow-[0_24px_80px_rgba(15,23,42,0.16)]">
-                <p className="text-xs uppercase tracking-[0.28em] text-white/42">Paketlar</p>
-                <p className="mt-4 text-4xl font-semibold">{packages.length}</p>
-                <p className="mt-3 text-sm leading-7 text-white/68">
-                  Saytda bron qilish uchun admin tomonidan boshqariladigan paketlar soni.
-                </p>
+            <div className="grid gap-4">
+              <div className="grid gap-4 sm:grid-cols-2">
+                {aboutStats.length > 0 ? (
+                  aboutStats.map((item, index) => (
+                    <div
+                      key={item.id}
+                      className={`rounded-[32px] p-6 shadow-[0_24px_80px_rgba(15,23,42,0.16)] ${
+                        index % 2 === 0
+                          ? "bg-[#07111f] text-white"
+                          : "bg-[linear-gradient(135deg,#1c4a7e_0%,#215f87_45%,#237a64_100%)] text-white"
+                      }`}
+                    >
+                      <div className="inline-flex rounded-2xl border border-white/10 bg-white/10 p-3">
+                        <AboutStatIcon icon={item.icon} />
+                      </div>
+                      <p className="mt-5 text-5xl font-semibold tracking-tight">{item.value}</p>
+                      <p className="mt-3 text-sm uppercase tracking-[0.28em] text-white/58">{item.label}</p>
+                      {item.description ? (
+                        <p className="mt-3 text-sm leading-7 text-white/72">{item.description}</p>
+                      ) : null}
+                    </div>
+                  ))
+                ) : (
+                  <div className="rounded-[32px] bg-[#07111f] p-6 text-white shadow-[0_24px_80px_rgba(15,23,42,0.16)] sm:col-span-2">
+                    <p className="text-5xl font-semibold tracking-tight">{packages.length}+</p>
+                    <p className="mt-3 text-sm uppercase tracking-[0.28em] text-white/58">Paketlar</p>
+                    <p className="mt-3 text-sm leading-7 text-white/72">Tanlangan dam olish paketlari.</p>
+                  </div>
+                )}
               </div>
+
               <div className="rounded-[32px] bg-pearl p-6">
-                <p className="text-xs uppercase tracking-[0.28em] text-ink/35">Aloqa</p>
-                <p className="mt-4 text-4xl font-semibold text-ink">{contactPeople.length}</p>
-                <p className="mt-3 text-sm leading-7 text-ink/62">
-                  Telefon va Telegram orqali bog'lanish uchun mavjud xodimlar kontaktlari.
-                </p>
-              </div>
-              <div className="rounded-[32px] bg-pearl p-6 sm:col-span-2">
                 <p className="text-xs uppercase tracking-[0.28em] text-ink/35">Joylashuv</p>
                 <div className="mt-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                   <p className="text-sm leading-7 text-ink/62">

@@ -53,6 +53,14 @@ export type SightseeingPlace = {
   description: string;
 };
 
+export type AboutStat = {
+  id: string;
+  value: string;
+  label: string;
+  description: string;
+  icon: "calendar" | "users" | "shield" | "sparkles";
+};
+
 export type ContentSectionType = "about" | "highlights" | "packages" | "gallery" | "sightseeing" | "contacts";
 
 export type ContentSection = {

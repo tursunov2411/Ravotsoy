@@ -55,7 +55,25 @@ values
     'Biz haqimizda',
     'Ravotsoyda tabiiy tinchlik va qulay dam olish birlashadi',
     '',
-    '{}'::jsonb,
+    jsonb_build_object(
+      'stats',
+      jsonb_build_array(
+        jsonb_build_object(
+          'id', 'years',
+          'value', '4+',
+          'label', 'Yillik tajriba',
+          'description', 'Tabiat bag''rida mehmon kutish va xizmat ko''rsatish tajribasi.',
+          'icon', 'calendar'
+        ),
+        jsonb_build_object(
+          'id', 'guests',
+          'value', '5000+',
+          'label', 'Mehmonlar',
+          'description', 'Ravotsoyda hordiq chiqargan oilalar, sayohatchilar va guruhlar.',
+          'icon', 'users'
+        )
+      )
+    ),
     10,
     true
   ),
