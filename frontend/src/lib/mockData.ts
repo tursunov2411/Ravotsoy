@@ -1,4 +1,4 @@
-import type { AboutStat, BookingRecord, ContentSection, MediaAsset, PackageRecord, SiteSettings } from "./types";
+import type { AboutStat, BookingRecord, ContentSection, FaqItem, MediaAsset, PackageRecord, SiteSettings } from "./types";
 
 export const mockPackages: PackageRecord[] = [
   {
@@ -129,33 +129,34 @@ export const mockHomeSections: ContentSection[] = [
     is_enabled: true,
   },
   {
-    id: "section-highlights",
+    id: "section-faq",
     page: "home",
-    section_type: "highlights",
-    eyebrow: "Afzalliklar",
-    title: "Mehmonlarga yoqadigan asosiy jihatlar",
-    description: "",
+    section_type: "faq",
+    eyebrow: "Ko'p beriladigan savollar",
+    title: "Savollaringiz bormi? Bizda javoblar tayyor!",
+    description: "Eng ko'p so'raladigan savollar va bron qilishdan oldingi muhim ma'lumotlar.",
     content: {
-      cards: [
+      items: [
         {
-          id: "nature",
-          title: "Tabiat",
-          description: "Ochiq havo, manzara va osoyishta muhit.",
-          icon: "trees",
+          id: "faq-1",
+          question: "Piknik uchun o'zimiz bilan nimalar olib kelishimiz kerak?",
+          answer:
+            "Sizdan faqat pishiriladigan masalliqlar va yaxshi kayfiyat so'raladi. Bizda barcha oshxona anjomlari: o'choq, qozon, mangal, shashlik sixlari va idish-tovoqlar to'liq mavjud va paket ichiga kiradi.",
         },
         {
-          id: "comfort",
-          title: "Qulaylik",
-          description: "Toza, shinam va mehmonlar uchun mos tayyor joylar.",
-          icon: "sparkles",
+          id: "faq-2",
+          question: "Dam olish maskani Registon maydonidan qancha uzoqlikda joylashgan?",
+          answer:
+            "Bizning maskanimiz Samarqand shahridan bor-yo'g'i 1.5 soatlik, taxminan 80-90 km masofada, Kitob tumanining so'lim Ravotsoy darasida joylashgan. Yo'llar asfaltrlangan va qulay.",
         },
         {
-          id: "contact",
-          title: "Aloqa",
-          description: "Telegram orqali tezkor javob va bron bo'yicha yordam.",
-          icon: "message-circle",
+          id: "faq-3",
+          question: "Oilaviy dam olish uchun sharoitlar xavfsiz va alohidami?",
+          answer:
+            "Albatta. Biz 4 yildan buyon oilaviy dam olishga ixtisoslashganmiz. Har bir oila uchun alohida xona, basseyn va tapchan ajratiladi. Hududimiz yopiq va begona ko'zlardan xoli.",
         },
-      ],
+      ] satisfies FaqItem[],
+      cta_label: "Boshqa savolingiz bormi? Telegramdan so'rang",
     },
     sort_order: 20,
     is_enabled: true,

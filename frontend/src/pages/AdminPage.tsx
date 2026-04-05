@@ -49,7 +49,7 @@ import type {
   BookingRecord,
   ContentSection,
   ContentSectionType,
-  HomeFeatureCard,
+  FaqItem,
   MediaAsset,
   MediaKind,
   PackageInput,
@@ -91,7 +91,7 @@ const emptySiteSettings: Omit<SiteSettings, "id"> = {
 
 const sectionTypeOptions: Array<{ value: ContentSectionType; label: string }> = [
   { value: "about", label: "About" },
-  { value: "highlights", label: "Highlights" },
+  { value: "faq", label: "FAQ" },
   { value: "packages", label: "Packages" },
   { value: "gallery", label: "Gallery" },
   { value: "sightseeing", label: "Sightseeing" },
@@ -100,10 +100,6 @@ const sectionTypeOptions: Array<{ value: ContentSectionType; label: string }> = 
 
 function createEmptyContact(): PublicContact {
   return { id: crypto.randomUUID(), name: "", role: "", phone: "", telegram: "" };
-}
-
-function createFeatureCard(): HomeFeatureCard {
-  return { id: crypto.randomUUID(), title: "", description: "", icon: "sparkles" };
 }
 
 function createAboutStat(): AboutStat {
@@ -120,12 +116,39 @@ function createSightseeingPlace(): SightseeingPlace {
   return { id: crypto.randomUUID(), name: "", description: "" };
 }
 
+function createFaqItem(): FaqItem {
+  return { id: crypto.randomUUID(), question: "", answer: "" };
+}
+
+function createDefaultFaqItems(): FaqItem[] {
+  return [
+    {
+      id: crypto.randomUUID(),
+      question: "Piknik uchun o'zimiz bilan nimalar olib kelishimiz kerak?",
+      answer:
+        "Sizdan faqat pishiriladigan masalliqlar va yaxshi kayfiyat so'raladi. Bizda barcha oshxona anjomlari: o'choq, qozon, mangal, shashlik sixlari va idish-tovoqlar to'liq mavjud va paket ichiga kiradi.",
+    },
+    {
+      id: crypto.randomUUID(),
+      question: "Dam olish maskani Registon maydonidan qancha uzoqlikda joylashgan?",
+      answer:
+        "Maskanimiz Samarqand shahridan bor-yo'g'i 1.5 soatlik, taxminan 80-90 km masofada joylashgan. Yo'llar asfaltrlangan va qulay.",
+    },
+    {
+      id: crypto.randomUUID(),
+      question: "Oilaviy dam olish uchun sharoitlar xavfsiz va alohidami?",
+      answer:
+        "Albatta. Har bir oila uchun alohida xona, basseyn va tapchan ajratiladi. Hudud yopiq va oilaviy hordiq uchun qulay tayyorlangan.",
+    },
+  ];
+}
+
 function createSection(type: ContentSectionType, sortOrder: number): Omit<ContentSection, "id"> {
   const title =
     type === "about"
       ? "Biz haqimizda"
-      : type === "highlights"
-        ? "Afzalliklar"
+      : type === "faq"
+        ? "Savollaringiz bormi? Bizda javoblar tayyor!"
         : type === "packages"
           ? "Paketlar"
           : type === "gallery"
@@ -143,8 +166,11 @@ function createSection(type: ContentSectionType, sortOrder: number): Omit<Conten
     content:
       type === "about"
         ? { stats: [createAboutStat(), createAboutStat()] }
-        : type === "highlights"
-        ? { cards: [createFeatureCard(), createFeatureCard(), createFeatureCard()] }
+        : type === "faq"
+        ? {
+            items: createDefaultFaqItems(),
+            cta_label: "Boshqa savolingiz bormi? Telegramdan so'rang",
+          }
         : type === "sightseeing"
           ? { places: [createSightseeingPlace(), createSightseeingPlace()] }
           : {},
@@ -155,29 +181,6 @@ function createSection(type: ContentSectionType, sortOrder: number): Omit<Conten
 
 function getSectionTypeLabel(type: ContentSectionType) {
   return sectionTypeOptions.find((item) => item.value === type)?.label ?? type;
-}
-
-function readFeatureCards(section: ContentSection): HomeFeatureCard[] {
-  const value = section.content.cards;
-
-  if (!Array.isArray(value)) {
-    return [];
-  }
-
-  return value.map((item) => {
-    const record = item as Record<string, unknown>;
-    const icon = String(record.icon ?? "sparkles") as HomeFeatureCard["icon"];
-
-    return {
-      id: String(record.id ?? crypto.randomUUID()),
-      title: String(record.title ?? ""),
-      description: String(record.description ?? ""),
-      icon:
-        icon === "trees" || icon === "sparkles" || icon === "message-circle" || icon === "map-pinned"
-          ? icon
-          : "sparkles",
-    };
-  });
 }
 
 function readAboutStats(section: ContentSection): AboutStat[] {
@@ -220,6 +223,28 @@ function readPlaces(section: ContentSection): SightseeingPlace[] {
       description: String(record.description ?? ""),
     };
   });
+}
+
+function readFaqItems(section: ContentSection): FaqItem[] {
+  const value = section.content.items;
+
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  return value.map((item) => {
+    const record = item as Record<string, unknown>;
+
+    return {
+      id: String(record.id ?? crypto.randomUUID()),
+      question: String(record.question ?? ""),
+      answer: String(record.answer ?? ""),
+    };
+  });
+}
+
+function readFaqCtaLabel(section: ContentSection) {
+  return String(section.content.cta_label ?? "");
 }
 
 function statusLabel(status: BookingRecord["status"]) {
@@ -466,7 +491,7 @@ export function AdminPage() {
   };
 
   const saveSiteSettings = async () => {
-    await upsertSiteSettings({
+    const savedSettings = await upsertSiteSettings({
       hotel_name: siteSettings.hotel_name?.trim() ?? "",
       description: siteSettings.description?.trim() ?? "",
       location_url: siteSettings.location_url.trim(),
@@ -480,6 +505,15 @@ export function AdminPage() {
           phone: item.phone.trim(),
           telegram: item.telegram.trim(),
         })) ?? [],
+    });
+
+    setSiteSettings({
+      hotel_name: savedSettings.hotel_name ?? "",
+      description: savedSettings.description ?? "",
+      location_url: savedSettings.location_url ?? "",
+      about_text: savedSettings.about_text ?? "",
+      hero_images: savedSettings.hero_images ?? [],
+      contact_people: savedSettings.contact_people ?? [],
     });
   };
 
@@ -595,12 +629,13 @@ export function AdminPage() {
   const handleSaveSection = async (section: ContentSection) => {
     await runAction(
       async () => {
-        await upsertHomeSection({
+        const savedSection = await upsertHomeSection({
           ...section,
           eyebrow: section.eyebrow.trim(),
           title: section.title.trim(),
           description: section.description.trim(),
         });
+        setHomeSections((current) => current.map((item) => (item.id === section.id ? savedSection : item)));
       },
       "Bo'lim saqlandi.",
     );
@@ -1177,7 +1212,7 @@ export function AdminPage() {
           <div className="space-y-5">
             {orderedSections.map((section, index) => {
               const aboutStats = readAboutStats(section);
-              const cards = readFeatureCards(section);
+              const faqItems = readFaqItems(section);
               const places = readPlaces(section);
 
               return (
@@ -1412,10 +1447,10 @@ export function AdminPage() {
                     </div>
                   ) : null}
 
-                  {section.section_type === "highlights" ? (
+                  {section.section_type === "faq" ? (
                     <div className="mt-5 rounded-[24px] bg-white/80 p-4">
                       <div className="flex items-center justify-between gap-3">
-                        <p className="text-sm font-medium text-ink">Highlight kartalari</p>
+                        <p className="text-sm font-medium text-ink">FAQ savollari</p>
                         <button
                           type="button"
                           onClick={() =>
@@ -1423,90 +1458,86 @@ export function AdminPage() {
                               ...current,
                               content: {
                                 ...current.content,
-                                cards: [...readFeatureCards(current), createFeatureCard()],
+                                items: [...readFaqItems(current), createFaqItem()],
                               },
                             }))
                           }
                           className="rounded-full border border-black/10 bg-white px-4 py-2 text-sm font-medium text-ink transition hover:bg-pearl"
                         >
-                          Karta qo'shish
+                          Savol qo'shish
                         </button>
                       </div>
 
+                      <div className="mt-4">
+                        <label className="space-y-2 text-sm text-ink/70">
+                          <span>CTA tugma matni</span>
+                          <input
+                            value={readFaqCtaLabel(section)}
+                            onChange={(event) =>
+                              updateSectionState(section.id, (current) => ({
+                                ...current,
+                                content: {
+                                  ...current.content,
+                                  cta_label: event.target.value,
+                                },
+                              }))
+                            }
+                            placeholder="Boshqa savolingiz bormi? Telegramdan so'rang"
+                            className={inputClassName()}
+                          />
+                        </label>
+                      </div>
+
                       <div className="mt-4 grid gap-4">
-                        {cards.map((card) => (
-                          <div key={card.id} className="grid gap-4 rounded-[20px] border border-black/8 bg-pearl/70 p-4 lg:grid-cols-[1fr_1fr_auto]">
+                        {faqItems.map((item) => (
+                          <div key={item.id} className="grid gap-4 rounded-[20px] border border-black/8 bg-pearl/70 p-4">
                             <input
-                              value={card.title}
+                              value={item.question}
                               onChange={(event) =>
                                 updateSectionState(section.id, (current) => ({
                                   ...current,
                                   content: {
                                     ...current.content,
-                                    cards: readFeatureCards(current).map((item) =>
-                                      item.id === card.id ? { ...item, title: event.target.value } : item,
+                                    items: readFaqItems(current).map((faqItem) =>
+                                      faqItem.id === item.id ? { ...faqItem, question: event.target.value } : faqItem,
                                     ),
                                   },
                                 }))
                               }
-                              placeholder="Sarlavha"
+                              placeholder="Savol"
                               className={inputClassName()}
                             />
-                            <input
-                              value={card.description}
+                            <textarea
+                              value={item.answer}
                               onChange={(event) =>
                                 updateSectionState(section.id, (current) => ({
                                   ...current,
                                   content: {
                                     ...current.content,
-                                    cards: readFeatureCards(current).map((item) =>
-                                      item.id === card.id ? { ...item, description: event.target.value } : item,
+                                    items: readFaqItems(current).map((faqItem) =>
+                                      faqItem.id === item.id ? { ...faqItem, answer: event.target.value } : faqItem,
                                     ),
                                   },
                                 }))
                               }
-                              placeholder="Tavsif"
-                              className={inputClassName()}
+                              placeholder="Javob"
+                              className={textareaClassName()}
                             />
-                            <div className="flex gap-2">
-                              <select
-                                value={card.icon}
-                                onChange={(event) =>
-                                  updateSectionState(section.id, (current) => ({
-                                    ...current,
-                                    content: {
-                                      ...current.content,
-                                      cards: readFeatureCards(current).map((item) =>
-                                        item.id === card.id
-                                          ? { ...item, icon: event.target.value as HomeFeatureCard["icon"] }
-                                          : item,
-                                      ),
-                                    },
-                                  }))
-                                }
-                                className={inputClassName()}
-                              >
-                                <option value="sparkles">sparkles</option>
-                                <option value="trees">trees</option>
-                                <option value="message-circle">message-circle</option>
-                                <option value="map-pinned">map-pinned</option>
-                              </select>
-                              <button
-                                type="button"
-                                onClick={() =>
-                                  updateSectionState(section.id, (current) => ({
-                                    ...current,
-                                    content: {
-                                      ...current.content,
-                                      cards: readFeatureCards(current).filter((item) => item.id !== card.id),
-                                    },
-                                  }))
-                                }
-                                className="inline-flex items-center justify-center rounded-full border border-red-200 px-3 py-2 text-red-700 transition hover:bg-red-50"
-                              >
-                                <Trash2 size={14} />
-                              </button>
-                            </div>
+                            <button
+                              type="button"
+                              onClick={() =>
+                                updateSectionState(section.id, (current) => ({
+                                  ...current,
+                                  content: {
+                                    ...current.content,
+                                    items: readFaqItems(current).filter((faqItem) => faqItem.id !== item.id),
+                                  },
+                                }))
+                              }
+                              className="inline-flex w-fit items-center justify-center rounded-full border border-red-200 px-4 py-2 text-red-700 transition hover:bg-red-50"
+                            >
+                              <Trash2 size={14} />
+                            </button>
                           </div>
                         ))}
                       </div>

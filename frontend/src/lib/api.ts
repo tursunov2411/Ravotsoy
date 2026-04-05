@@ -6,7 +6,6 @@ import type {
   BookingStatus,
   ContentSection,
   ContentSectionType,
-  HomeFeatureCard,
   MediaAsset,
   MediaKind,
   PublicContact,
@@ -55,35 +54,6 @@ function parseContactPeople(value: unknown): PublicContact[] {
     .filter((item): item is PublicContact => Boolean(item));
 }
 
-function parseFeatureCards(value: unknown): HomeFeatureCard[] {
-  if (!Array.isArray(value)) {
-    return [];
-  }
-
-  return value
-    .map((item) => {
-      const record = item as Record<string, unknown>;
-      const title = String(record.title ?? "").trim();
-      const description = String(record.description ?? "").trim();
-      const icon = String(record.icon ?? "sparkles") as HomeFeatureCard["icon"];
-
-      if (!title && !description) {
-        return null;
-      }
-
-      return {
-        id: String(record.id ?? crypto.randomUUID()),
-        title,
-        description,
-        icon:
-          icon === "trees" || icon === "sparkles" || icon === "message-circle" || icon === "map-pinned"
-            ? icon
-            : "sparkles",
-      } satisfies HomeFeatureCard;
-    })
-    .filter((item): item is HomeFeatureCard => Boolean(item));
-}
-
 function parseSightseeingPlaces(value: unknown): SightseeingPlace[] {
   if (!Array.isArray(value)) {
     return [];
@@ -121,13 +91,17 @@ function parseSectionType(value: unknown): ContentSectionType {
 
   if (
     type === "about" ||
-    type === "highlights" ||
+    type === "faq" ||
     type === "packages" ||
     type === "gallery" ||
     type === "sightseeing" ||
     type === "contacts"
   ) {
     return type;
+  }
+
+  if (type === "highlights") {
+    return "faq";
   }
 
   return "about";
@@ -577,7 +551,7 @@ export async function upsertHomeSection(
 ) {
   const client = ensureSupabase();
   const payload = {
-    id: section.id ?? undefined,
+    id: section.id ?? crypto.randomUUID(),
     page: "home",
     section_type: section.section_type,
     eyebrow: section.eyebrow,
@@ -588,11 +562,11 @@ export async function upsertHomeSection(
     is_enabled: section.is_enabled,
   };
 
-  const query = section.id
-    ? client.from("content_sections").update(payload).eq("id", section.id).select().single()
-    : client.from("content_sections").insert(payload).select().single();
-
-  const { data, error } = await query;
+  const { data, error } = await client
+    .from("content_sections")
+    .upsert(payload, { onConflict: "id" })
+    .select()
+    .single();
 
   if (error) {
     throw error;

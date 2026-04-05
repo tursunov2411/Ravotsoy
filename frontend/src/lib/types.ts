@@ -47,6 +47,12 @@ export type HomeFeatureCard = {
   icon: "trees" | "sparkles" | "message-circle" | "map-pinned";
 };
 
+export type FaqItem = {
+  id: string;
+  question: string;
+  answer: string;
+};
+
 export type SightseeingPlace = {
   id: string;
   name: string;
@@ -61,7 +67,7 @@ export type AboutStat = {
   icon: "calendar" | "users" | "shield" | "sparkles";
 };
 
-export type ContentSectionType = "about" | "highlights" | "packages" | "gallery" | "sightseeing" | "contacts";
+export type ContentSectionType = "about" | "faq" | "packages" | "gallery" | "sightseeing" | "contacts";
 
 export type ContentSection = {
   id: string;

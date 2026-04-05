@@ -1,13 +1,14 @@
 import {
   ArrowRight,
   CalendarRange,
+  ChevronDown,
   ExternalLink,
   MapPinned,
   MessageCircleMore,
   Phone,
+  CircleHelp,
   ShieldCheck,
   Sparkles,
-  Trees,
   Users,
 } from "lucide-react";
 import { motion } from "framer-motion";
@@ -22,29 +23,13 @@ import { getHomeSections, getMediaAssets, getPackages, getSiteSettings } from ".
 import type {
   AboutStat,
   ContentSection,
-  HomeFeatureCard,
+  FaqItem,
   MediaAsset,
   PackageRecord,
   SightseeingPlace,
   SiteSettings,
 } from "../lib/types";
 import { getPhoneLink, getTelegramLink, getTelegramProfileLink, isVideoUrl } from "../lib/utils";
-
-function FeatureIcon({ icon }: { icon: HomeFeatureCard["icon"] }) {
-  if (icon === "trees") {
-    return <Trees className="text-emerald-300" size={22} />;
-  }
-
-  if (icon === "message-circle") {
-    return <MessageCircleMore className="text-emerald-300" size={22} />;
-  }
-
-  if (icon === "map-pinned") {
-    return <MapPinned className="text-emerald-300" size={22} />;
-  }
-
-  return <Sparkles className="text-emerald-300" size={22} />;
-}
 
 function SectionHeading({
   eyebrow,
@@ -66,7 +51,7 @@ function SectionHeading({
   );
 }
 
-function parseFeatureCards(value: unknown): HomeFeatureCard[] {
+function parseFaqItems(value: unknown): FaqItem[] {
   if (!Array.isArray(value)) {
     return [];
   }
@@ -74,25 +59,20 @@ function parseFeatureCards(value: unknown): HomeFeatureCard[] {
   return value
     .map((item) => {
       const record = item as Record<string, unknown>;
-      const title = String(record.title ?? "").trim();
-      const description = String(record.description ?? "").trim();
-      const icon = String(record.icon ?? "sparkles") as HomeFeatureCard["icon"];
+      const question = String(record.question ?? "").trim();
+      const answer = String(record.answer ?? "").trim();
 
-      if (!title && !description) {
+      if (!question && !answer) {
         return null;
       }
 
       return {
         id: String(record.id ?? crypto.randomUUID()),
-        title,
-        description,
-        icon:
-          icon === "trees" || icon === "sparkles" || icon === "message-circle" || icon === "map-pinned"
-            ? icon
-            : "sparkles",
-      } satisfies HomeFeatureCard;
+        question,
+        answer,
+      } satisfies FaqItem;
     })
-    .filter((item): item is HomeFeatureCard => Boolean(item));
+    .filter((item): item is FaqItem => Boolean(item));
 }
 
 function parseSightseeingPlaces(value: unknown): SightseeingPlace[] {
@@ -165,6 +145,7 @@ export function HomePage() {
   const [media, setMedia] = useState<MediaAsset[]>([]);
   const [siteSettings, setSiteSettings] = useState<SiteSettings | null>(null);
   const [heroIndex, setHeroIndex] = useState(0);
+  const [openFaqId, setOpenFaqId] = useState<string | null>(null);
 
   useEffect(() => {
     const load = async () => {
@@ -315,30 +296,73 @@ export function HomePage() {
       );
     }
 
-    if (section.section_type === "highlights") {
-      const cards = parseFeatureCards(section.content.cards);
+    if (section.section_type === "faq") {
+      const faqItems = parseFaqItems(section.content.items);
+      const ctaLabel = String(section.content.cta_label ?? "Boshqa savolingiz bormi? Telegramdan so'rang").trim();
 
       return (
         <AnimatedSection key={section.id} className="mt-16">
-          <SectionHeading eyebrow={section.eyebrow} title={section.title} description={section.description} />
-          <div className="mt-8 grid gap-4 lg:grid-cols-3">
-            {cards.length > 0 ? (
-              cards.map((item) => (
-                <div
-                  key={item.id}
-                  className="rounded-[32px] border border-black/5 bg-white p-6 shadow-soft transition duration-300 hover:-translate-y-1 hover:shadow-[0_28px_80px_rgba(15,23,42,0.12)]"
-                >
-                  <div className="inline-flex rounded-2xl bg-pearl p-3">
-                    <FeatureIcon icon={item.icon} />
-                  </div>
-                  <h3 className="mt-5 text-2xl font-semibold tracking-tight text-ink">{item.title}</h3>
-                  <p className="mt-3 text-sm leading-7 text-ink/60">{item.description}</p>
+          <div className="rounded-[36px] bg-[linear-gradient(180deg,#f4f9f4_0%,#edf5ed_100%)] p-8 shadow-soft sm:p-10">
+            <SectionHeading eyebrow={section.eyebrow} title={section.title} description={section.description} />
+            <div className="mt-8 grid gap-4">
+              {faqItems.length > 0 ? (
+                faqItems.map((item) => {
+                  const isOpen = openFaqId === item.id;
+
+                  return (
+                    <div key={item.id} className="overflow-hidden rounded-[28px] border border-black/6 bg-white shadow-soft">
+                      <button
+                        type="button"
+                        onClick={() => setOpenFaqId((current) => (current === item.id ? null : item.id))}
+                        className="flex w-full items-center justify-between gap-4 px-6 py-5 text-left"
+                      >
+                        <div className="flex items-start gap-4">
+                          <div className="mt-1 inline-flex h-10 w-10 items-center justify-center rounded-full bg-emerald-50 text-emerald-700">
+                            <CircleHelp size={18} />
+                          </div>
+                          <div>
+                            <h3 className="text-lg font-semibold tracking-tight text-ink sm:text-xl">{item.question}</h3>
+                          </div>
+                        </div>
+                        <ChevronDown
+                          size={18}
+                          className={`shrink-0 text-ink/45 transition-transform duration-200 ${isOpen ? "rotate-180" : ""}`}
+                        />
+                      </button>
+                      <motion.div
+                        initial={false}
+                        animate={{ height: isOpen ? "auto" : 0, opacity: isOpen ? 1 : 0 }}
+                        transition={{ duration: 0.22, ease: "easeOut" }}
+                        className="overflow-hidden"
+                      >
+                        <div className="border-t border-black/6 px-6 pb-6 pt-5 text-sm leading-8 text-ink/62">
+                          {item.answer}
+                        </div>
+                      </motion.div>
+                    </div>
+                  );
+                })
+              ) : (
+                <div className="rounded-[32px] border border-dashed border-black/10 bg-white p-8 text-sm text-ink/60">
+                  FAQ savollari hali qo'shilmagan.
                 </div>
-              ))
-            ) : (
-              <div className="rounded-[32px] border border-dashed border-black/10 bg-white p-8 text-sm text-ink/60">
-                Bu bo'lim uchun kartalar hali sozlanmagan.
+              )}
+            </div>
+
+            {ctaLabel ? (
+              <div className="mt-8">
+                <a
+                  href={telegramLink}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="inline-flex items-center gap-2 rounded-full bg-ink px-6 py-3 text-sm font-medium text-white transition hover:bg-pine"
+                >
+                  <MessageCircleMore size={18} />
+                  {ctaLabel}
+                </a>
               </div>
+            ) : (
+              null
             )}
           </div>
         </AnimatedSection>
