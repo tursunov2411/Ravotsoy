@@ -1075,7 +1075,7 @@ export function createManagerBot() {
 
   async function handleViewProof(callbackQuery) {
     const callbackQueryId = callbackQuery?.id;
-    const chatId = callbackQuery?.message?.chat?.id;
+    const chatId = callbackQuery?.from?.id ?? callbackQuery?.message?.chat?.id;
     const bookingId = getBookingId(callbackQuery?.data, ACTIONS.view);
 
     if (!callbackQueryId || !chatId || !bookingId) {
@@ -1144,10 +1144,11 @@ export function createManagerBot() {
 
   async function handleDashboardCallback(callbackQuery) {
     const callbackQueryId = callbackQuery?.id;
-    const chatId = callbackQuery?.message?.chat?.id;
+    const sourceChatId = callbackQuery?.message?.chat?.id;
+    const chatId = callbackQuery?.from?.id ?? sourceChatId;
     const data = String(callbackQuery?.data ?? "");
 
-    if (!callbackQueryId || !chatId) {
+    if (!callbackQueryId || !sourceChatId || !chatId) {
       return false;
     }
 
@@ -1210,9 +1211,16 @@ export function createManagerBot() {
       }
 
       if (data.startsWith(ACTIONS.bookings)) {
-        await answerCallbackQuery(callbackQueryId, "Bronlar");
-        await showFilteredBookings(chatId, data.slice(ACTIONS.bookings.length));
-        return true;
+        const bookingFilterKey = data.slice(ACTIONS.bookings.length);
+        const isKnownFilter =
+          bookingFilterKey.startsWith("src:")
+          || ["pending", "awaiting", "confirmed", "checked_in", "completed", "rejected", "today", "tomorrow"].includes(bookingFilterKey);
+
+        if (isKnownFilter) {
+          await answerCallbackQuery(callbackQueryId, "Bronlar");
+          await showFilteredBookings(chatId, bookingFilterKey);
+          return true;
+        }
       }
 
       if (data.startsWith(ACTIONS.bookingDetail)) {
@@ -1701,6 +1709,7 @@ export function createManagerBot() {
 
       if (message?.chat?.id) {
         const chatId = message.chat.id;
+        const isPrivateChat = message.chat.type === "private";
         const text = String(message.text ?? "").trim();
         const pendingImageUpload = pendingImageUploads.get(chatId);
         const pendingRecipientInput = pendingRecipientInputs.get(chatId);
@@ -1987,6 +1996,9 @@ export function createManagerBot() {
           }
         }
 
+        if (!isPrivateChat) {
+          return;
+        }
         if (isStartCommand(text) || isHelpCommand(text)) {
           await showMainMenu(chatId, "👋 Manager panel tayyor.\n\nBarcha boshqaruv tugmalar orqali ishlaydi.");
           return;
