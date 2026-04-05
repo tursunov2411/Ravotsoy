@@ -12,6 +12,7 @@ const BUTTONS = {
 };
 const CALLBACKS = {
   packagePrefix: "package_",
+  datePrefix: "date_",
   confirm: "confirm_booking",
   cancel: "cancel_booking",
 };
@@ -273,6 +274,16 @@ function buildBookingSummary(data) {
   ].join("\n");
 }
 
+function chunkItems(items, size) {
+  const rows = [];
+
+  for (let index = 0; index < items.length; index += size) {
+    rows.push(items.slice(index, index + size));
+  }
+
+  return rows;
+}
+
 export function createTelegramWebhookApp() {
   const frontendUrl = process.env.FRONTEND_URL?.trim();
   const webhookSecret = process.env.WEBHOOK_SECRET?.trim();
@@ -297,7 +308,7 @@ export function createTelegramWebhookApp() {
   async function fetchPackages() {
     const { data, error } = await supabase
       .from("packages")
-      .select("id, name, description, base_price, media(url)")
+      .select("id, name, description, base_price, capacity, media(url)")
       .order("created_at", { ascending: true });
 
     if (error) {
@@ -309,6 +320,7 @@ export function createTelegramWebhookApp() {
       name: String(item.name ?? ""),
       description: String(item.description ?? ""),
       base_price: Number(item.base_price ?? 0),
+      capacity: Number(item.capacity ?? 1),
       imageUrl: Array.isArray(item.media)
         ? String(item.media.find((media) => String(media?.url ?? "").trim())?.url ?? "")
         : "",
@@ -333,18 +345,34 @@ export function createTelegramWebhookApp() {
   }
 
   async function insertBooking(bookingData) {
-    const { error } = await supabase.from("bookings").insert({
-      name: bookingData.name,
-      phone: bookingData.phone,
-      guests: bookingData.guests,
-      package_id: bookingData.package_id,
-      date_start: bookingData.date_start,
-      status: "pending",
+    const { data, error } = await supabase.rpc("create_pending_booking_if_available", {
+      p_name: bookingData.name,
+      p_phone: bookingData.phone,
+      p_guests: bookingData.guests,
+      p_package_id: bookingData.package_id,
+      p_date_start: bookingData.date_start,
     });
 
     if (error) {
       throw error;
     }
+
+    return data ?? null;
+  }
+
+  async function getAvailableDates(packageId) {
+    const { data, error } = await supabase.rpc("get_available_booking_dates", {
+      p_package_id: packageId,
+      p_days: 7,
+    });
+
+    if (error) {
+      throw error;
+    }
+
+    return (data ?? [])
+      .map((item) => String(item.date_start ?? "").trim())
+      .filter(Boolean);
   }
 
   async function answerCallbackQuerySafe(callbackQueryId, text) {
@@ -429,10 +457,40 @@ export function createTelegramWebhookApp() {
     }
 
     state.step = "package";
-    state.data.packages = packages.map((item) => ({ id: item.id, name: item.name }));
+    state.data.packages = packages.map((item) => ({ id: item.id, name: item.name, capacity: item.capacity }));
     await telegram.sendMessage(chatId, "Paketni tanlang:", {
       reply_markup: buildPackageInlineKeyboard(packages),
     });
+  }
+
+  async function promptAvailableDates(chatId, state, introText = "Bo'sh sanani tanlang:") {
+    const availableDates = await getAvailableDates(state.data.package_id);
+
+    if (availableDates.length === 0) {
+      clearChatState(chatId);
+      await telegram.sendMessage(chatId, "\u274C Hozircha bo\u2018sh sanalar yo'q. Iltimos keyinroq urinib ko'ring.", {
+        reply_markup: MAIN_KEYBOARD,
+      });
+      return false;
+    }
+
+    state.step = "date";
+    state.data.available_dates = availableDates;
+    const inlineKeyboard = chunkItems(
+      availableDates.map((date) => ({
+        text: date,
+        callback_data: `${CALLBACKS.datePrefix}${date}`,
+      })),
+      2,
+    );
+
+    await telegram.sendMessage(chatId, introText, {
+      reply_markup: {
+        inline_keyboard: inlineKeyboard,
+      },
+    });
+
+    return true;
   }
 
   async function advanceBookingConversation(chatId, text) {
@@ -481,17 +539,8 @@ export function createTelegramWebhookApp() {
     }
 
     if (state.step === "date") {
-      if (!isValidDateInput(text)) {
-        await telegram.sendMessage(chatId, "Sanani YYYY-MM-DD formatida kiriting.", {
-          reply_markup: MAIN_KEYBOARD,
-        });
-        return true;
-      }
-
-      state.data.date_start = text;
-      state.step = "confirm";
-      await telegram.sendMessage(chatId, buildBookingSummary(state.data), {
-        reply_markup: buildBookingConfirmationKeyboard(),
+      await telegram.sendMessage(chatId, "Sanani inline tugmalar orqali tanlang.", {
+        reply_markup: MAIN_KEYBOARD,
       });
       return true;
     }
@@ -536,12 +585,57 @@ export function createTelegramWebhookApp() {
 
     state.data.package_id = selectedPackage.id;
     state.data.package_name = selectedPackage.name;
+    state.data.package_capacity = selectedPackage.capacity;
     delete state.data.packages;
-    state.step = "date";
+    delete state.data.date_start;
 
     await answerCallbackQuerySafe(callbackQueryId, "Paket tanlandi.");
-    await telegram.sendMessage(chatId, "Sanani kiriting (YYYY-MM-DD)", {
-      reply_markup: MAIN_KEYBOARD,
+    await promptAvailableDates(chatId, state);
+    return true;
+  }
+
+  async function handleDateSelection(callbackQuery) {
+    const callbackQueryId = callbackQuery?.id;
+    const chatId = callbackQuery?.message?.chat?.id;
+    const data = String(callbackQuery?.data ?? "");
+
+    if (!callbackQueryId || !chatId || !data.startsWith(CALLBACKS.datePrefix)) {
+      return false;
+    }
+
+    const state = getChatState(chatId);
+
+    if (!state || state.step !== "date") {
+      await answerCallbackQuerySafe(callbackQueryId, "Sanani qaytadan tanlang.");
+      await telegram.sendMessage(chatId, "Bron qilishni qaytadan boshlang.", {
+        reply_markup: MAIN_KEYBOARD,
+      });
+      return true;
+    }
+
+    const selectedDate = data.slice(CALLBACKS.datePrefix.length);
+
+    if (!isValidDateInput(selectedDate)) {
+      await answerCallbackQuerySafe(callbackQueryId, "Sana noto'g'ri.");
+      await promptAvailableDates(chatId, state);
+      return true;
+    }
+
+    const availableDates = await getAvailableDates(state.data.package_id);
+
+    if (!availableDates.includes(selectedDate)) {
+      await answerCallbackQuerySafe(callbackQueryId, "Bu sana band.");
+      await promptAvailableDates(chatId, state, "\u274C Bu paket uchun joylar to\u2018lib bo'lgan. Boshqa sana tanlang.");
+      return true;
+    }
+
+    state.data.available_dates = availableDates;
+    state.data.date_start = selectedDate;
+    state.step = "confirm";
+
+    await answerCallbackQuerySafe(callbackQueryId, "Sana tanlandi.");
+    await telegram.sendMessage(chatId, buildBookingSummary(state.data), {
+      reply_markup: buildBookingConfirmationKeyboard(),
     });
     return true;
   }
@@ -575,7 +669,17 @@ export function createTelegramWebhookApp() {
     }
 
     try {
-      await insertBooking(state.data);
+      const bookingResult = await insertBooking(state.data);
+
+      if (!bookingResult?.success) {
+        await answerCallbackQuerySafe(callbackQueryId, "Sana band.");
+        await telegram.sendMessage(chatId, "\u274C Bu paket uchun joylar to\u2018lib bo'lgan. Boshqa sana tanlang.", {
+          reply_markup: MAIN_KEYBOARD,
+        });
+        await promptAvailableDates(chatId, state, "Bo'sh sanani tanlang:");
+        return true;
+      }
+
       clearChatState(chatId);
       await answerCallbackQuerySafe(callbackQueryId, "So'rovingiz yuborildi.");
       await telegram.sendMessage(chatId, "\u2705 So\u2018rovingiz yuborildi!", {
@@ -598,6 +702,10 @@ export function createTelegramWebhookApp() {
     }
 
     if (await handlePackageSelection(callbackQuery)) {
+      return;
+    }
+
+    if (await handleDateSelection(callbackQuery)) {
       return;
     }
 
