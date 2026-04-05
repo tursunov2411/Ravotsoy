@@ -502,20 +502,32 @@ export async function uploadMediaAsset(file: File, type: MediaKind, packageId?: 
   }
 
   const { data: publicUrlData } = client.storage.from(bucket).getPublicUrl(path);
-  const { error: insertError } = await client.from("media").insert({
-    type,
-    url: publicUrlData.publicUrl,
-    package_id: packageId ?? null,
-    storage_path: path,
-  });
+  const { data, error: insertError } = await client
+    .from("media")
+    .insert({
+      type,
+      url: publicUrlData.publicUrl,
+      package_id: packageId ?? null,
+      storage_path: path,
+    })
+    .select("id, type, url, package_id, storage_path")
+    .single();
 
   if (insertError) {
     throw insertError;
   }
+
+  return {
+    id: String(data.id),
+    type: data.type as MediaKind,
+    url: String(data.url),
+    package_id: data.package_id ? String(data.package_id) : null,
+    storage_path: data.storage_path ? String(data.storage_path) : null,
+  } satisfies MediaAsset;
 }
 
 export async function uploadPackageImage(file: File, packageId: string) {
-  await uploadMediaAsset(file, "package", packageId);
+  return uploadMediaAsset(file, "package", packageId);
 }
 
 export async function deleteMediaAsset(asset: MediaAsset) {

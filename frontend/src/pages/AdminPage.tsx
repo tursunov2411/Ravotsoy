@@ -332,6 +332,10 @@ export function AdminPage() {
   const [newSectionType, setNewSectionType] = useState<ContentSectionType>("about");
   const [notice, setNotice] = useState("");
   const [error, setError] = useState("");
+  const editingPackage = useMemo(
+    () => packages.find((item) => item.id === editingPackageId) ?? null,
+    [packages, editingPackageId],
+  );
 
   const redirectToAdminLogin = async () => {
     setSession(null);
@@ -421,6 +425,15 @@ export function AdminPage() {
     return unsubscribe;
   }, [navigate]);
 
+  useEffect(() => {
+    if (!notice) {
+      return;
+    }
+
+    const timeout = window.setTimeout(() => setNotice(""), 4000);
+    return () => window.clearTimeout(timeout);
+  }, [notice]);
+
   const runAction = async (action: () => Promise<void>, successText: string) => {
     setWorking(true);
     resetMessages();
@@ -482,17 +495,20 @@ export function AdminPage() {
 
     try {
       const savedPackage = await upsertPackage(editingPackageId, { ...packageForm });
+      const uploadedImages =
+        packageImageFiles.length > 0
+          ? await Promise.all(packageImageFiles.map((file) => uploadPackageImage(file, savedPackage.id)))
+          : [];
 
-      if (packageImageFiles.length > 0) {
-        await Promise.all(packageImageFiles.map((file) => uploadPackageImage(file, savedPackage.id)));
+      if (uploadedImages.length > 0) {
+        setMedia((current) => [...uploadedImages, ...current]);
       }
 
       setPackages((current) => {
+        const existingImages = current.find((item) => item.id === savedPackage.id)?.images ?? [];
         const nextItem = {
           ...savedPackage,
-          images:
-            current.find((item) => item.id === savedPackage.id)?.images ??
-            savedPackage.images,
+          images: [...existingImages, ...uploadedImages.map((item) => item.url)],
         };
 
         return current.some((item) => item.id === savedPackage.id)
@@ -1641,6 +1657,16 @@ export function AdminPage() {
           description="Yangi paketlar va ularning narxlarini boshqaring."
         >
           <form className="grid gap-4 lg:grid-cols-2" onSubmit={handlePackageSubmit}>
+            {editingPackage ? (
+              <div className="rounded-[24px] border border-amber-200 bg-amber-50 px-4 py-4 text-sm text-amber-900 lg:col-span-2">
+                <p className="font-medium">{editingPackage.name} paketi tahrir qilinmoqda.</p>
+                <p className="mt-1 text-amber-800/80">
+                  Hozirgi rasmlar: {editingPackage.images.length} ta. Yangi rasmlar qo'shsangiz, ular mavjud galereyaga
+                  qo'shiladi.
+                </p>
+              </div>
+            ) : null}
+
             <label className="space-y-2 text-sm text-ink/70">
               <span>Nomi</span>
               <input
