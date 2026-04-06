@@ -15,6 +15,7 @@ import {
   updateBookingPriceManually,
 } from "../services/proofService.js";
 import {
+  addManagerExpense,
   addReportRecipient,
   buildDailyReportMessage,
   createResource,
@@ -22,13 +23,19 @@ import {
   formatAnalyticsForTelegram,
   formatAvailabilityForTelegram,
   formatReportRecipientsForTelegram,
-  getDailyReportRecipients,
+  getBookingCalendarMonth,
   getBusinessAnalytics,
+  getDailyReportRecipients,
+  getManagerBalanceSnapshot,
   getResourceOverview,
   getSitePaymentSettings,
   getSystemStatus,
+  handOverBalanceToOwner,
   linkReportRecipientFromTelegram,
   listBookingsForManager,
+  listBookingsForManagerDay,
+  listManagerBalanceHandoffs,
+  listManagerExpenses,
   listPricingRules,
   listReportRecipients,
   removeReportRecipient,
@@ -41,6 +48,7 @@ import { createOfflineBooking, getTripBuilderOptions } from "../services/booking
 import {
   clearManagerDecisionKeyboard,
   notifyCustomerAboutDecision,
+  notifyOwnersAboutFinanceEvent,
   sendManagerProofPreview,
 } from "../services/managerNotifications.js";
 
@@ -54,6 +62,7 @@ const BUTTONS = {
   analytics: "📊 Analitika",
   report: "🗂 Hisobotlar",
   status: "🛠 Tizim holati",
+  balance: "💰 Balans",
 };
 
 const ACTIONS = {
@@ -91,6 +100,17 @@ const ACTIONS = {
   pricingDiscountDown: "mpr_dd_",
   report: "mrep_",
   reportRecipientDelete: "mrep_del_",
+  calendar: "mcal_",
+  calendarDay: "mcal_day_",
+  calendarBack: "mcal_back_",
+  calendarNoop: "mcal_noop",
+  balance: "mbal_",
+  balanceExpense: "mbal_expense",
+  balanceExpenses: "mbal_expenses",
+  balanceHandover: "mbal_handover",
+  balanceHandoverConfirm: "mbal_handover_confirm",
+  balanceHandoffs: "mbal_handoffs",
+  balanceEarnings: "mbal_earnings",
   payment: "mpay_",
   offline: "moff_",
   offlineType: "moff_t_",
@@ -148,6 +168,18 @@ function addDays(dateText, days) {
   }).format(date);
 }
 
+function getCurrentYearMonth() {
+  return getTodayTashkent().slice(0, 7);
+}
+
+function formatCalendarDayButton(day) {
+  if (!day.inMonth) {
+    return " ";
+  }
+
+  return day.bookingCount > 0 ? `${day.dayNumber}(${day.bookingCount})` : String(day.dayNumber);
+}
+
 function buildMainKeyboard() {
   return {
     inline_keyboard: [
@@ -165,6 +197,7 @@ function buildMainKeyboard() {
       ],
       [
         { text: BUTTONS.report, callback_data: `${ACTIONS.main}report` },
+        { text: BUTTONS.balance, callback_data: `${ACTIONS.main}balance` },
       ],
       [
         { text: BUTTONS.status, callback_data: `${ACTIONS.main}status` },
@@ -210,6 +243,9 @@ function buildBookingsKeyboard() {
         { text: "💬 Telegram", callback_data: `${ACTIONS.bookings}src:telegram` },
       ],
       [
+        { text: "🗓 Oy kalendari", callback_data: `${ACTIONS.calendar}${getCurrentYearMonth()}` },
+      ],
+      [
         { text: "⬇️ CSV yuklash", callback_data: `${ACTIONS.report}download_history` },
         { text: "🔙 Orqaga", callback_data: ACTIONS.backMain },
       ],
@@ -245,6 +281,89 @@ function buildReportKeyboard() {
         { text: "👤 Qabul qiluvchilar", callback_data: `${ACTIONS.report}recipients` },
         { text: "🔙 Orqaga", callback_data: ACTIONS.backMain },
       ],
+    ],
+  };
+}
+
+function buildBalanceKeyboard(hasPositiveBalance = false) {
+  return {
+    inline_keyboard: [
+      [{ text: "➕ Xarajat qo'shish", callback_data: ACTIONS.balanceExpense }],
+      [
+        { text: "📋 Xarajatlar", callback_data: ACTIONS.balanceExpenses },
+        { text: "💼 Mening daromadim", callback_data: ACTIONS.balanceEarnings },
+      ],
+      [
+        { text: "📤 Topshirildi", callback_data: ACTIONS.balanceHandover },
+        { text: "🧾 Topshirilganlar", callback_data: ACTIONS.balanceHandoffs },
+      ],
+      [
+        { text: "🔄 Yangilash", callback_data: ACTIONS.balance },
+        { text: "🔙 Orqaga", callback_data: ACTIONS.backMain },
+      ],
+    ],
+  };
+}
+
+function buildBalanceHandoverConfirmKeyboard() {
+  return {
+    inline_keyboard: [
+      [
+        { text: "✅ Ha, topshirildi", callback_data: ACTIONS.balanceHandoverConfirm },
+        { text: "🔙 Ortga", callback_data: ACTIONS.balance },
+      ],
+    ],
+  };
+}
+
+function buildCalendarKeyboard(calendar) {
+  const [yearText, monthText] = calendar.yearMonth.split("-");
+  const year = Number(yearText);
+  const month = Number(monthText);
+  const prevMonth = `${month === 1 ? year - 1 : year}-${String(month === 1 ? 12 : month - 1).padStart(2, "0")}`;
+  const nextMonth = `${month === 12 ? year + 1 : year}-${String(month === 12 ? 1 : month + 1).padStart(2, "0")}`;
+  const rows = [
+    [
+      { text: "⬅️", callback_data: `${ACTIONS.calendar}${prevMonth}` },
+      { text: calendar.label, callback_data: ACTIONS.calendarNoop },
+      { text: "➡️", callback_data: `${ACTIONS.calendar}${nextMonth}` },
+    ],
+    [
+      { text: "Du", callback_data: ACTIONS.calendarNoop },
+      { text: "Se", callback_data: ACTIONS.calendarNoop },
+      { text: "Ch", callback_data: ACTIONS.calendarNoop },
+      { text: "Pa", callback_data: ACTIONS.calendarNoop },
+      { text: "Ju", callback_data: ACTIONS.calendarNoop },
+      { text: "Sh", callback_data: ACTIONS.calendarNoop },
+      { text: "Ya", callback_data: ACTIONS.calendarNoop },
+    ],
+  ];
+
+  for (const week of calendar.weeks) {
+    rows.push(week.map((day) => ({
+      text: formatCalendarDayButton(day),
+      callback_data: day.inMonth ? `${ACTIONS.calendarDay}${day.dateText}` : ACTIONS.calendarNoop,
+    })));
+  }
+
+  rows.push([
+    { text: "📚 Bronlar", callback_data: `${ACTIONS.main}bookings` },
+    { text: "🔙 Orqaga", callback_data: ACTIONS.backMain },
+  ]);
+
+  return { inline_keyboard: rows };
+}
+
+function buildCalendarDayKeyboard(bookings, yearMonth) {
+  return {
+    inline_keyboard: [
+      ...bookings.slice(0, 10).map((booking) => [
+        {
+          text: `👁 ${booking.bookingLabel}`,
+          callback_data: `${ACTIONS.bookingDetail}${booking.id}`,
+        },
+      ]),
+      [{ text: "🔙 Oy kalendariga qaytish", callback_data: `${ACTIONS.calendarBack}${yearMonth}` }],
     ],
   };
 }
@@ -733,6 +852,89 @@ function formatPaymentSettings(settings) {
   ].join("\n");
 }
 
+function formatBookingCalendarMonth(calendar) {
+  return [
+    "🗓 Bron kalendari",
+    "",
+    `${calendar.label}`,
+    `Bronlar soni: ${calendar.totalBookings}`,
+    `Band kunlar: ${calendar.daysWithBookings}`,
+    "",
+    "Kunni tanlash uchun pastdagi kalendardan foydalaning.",
+  ].join("\n");
+}
+
+function formatBalanceSummary(snapshot) {
+  return [
+    "💰 Balans markazi",
+    "",
+    `Joriy balans: ${formatPrice(snapshot.currentBalance)} UZS`,
+    `Jami tushum: ${formatPrice(snapshot.totalRevenue)} UZS`,
+    `Jami xarajatlar: ${formatPrice(snapshot.totalExpenses)} UZS`,
+    `Ownerga topshirilgan: ${formatPrice(snapshot.totalHandedOver)} UZS`,
+    `Bugungi xarajatlar: ${formatPrice(snapshot.todayExpenseTotal)} UZS`,
+    `To'langan bronlar: ${snapshot.paidBookingCount}`,
+    "",
+    "Pastdagi tugmalar orqali xarajat, topshirish va daromad bo'limlarini boshqaring.",
+  ].join("\n");
+}
+
+function formatManagerEarnings(snapshot) {
+  return [
+    "💼 Mening daromadim",
+    "",
+    `Jami tushum: ${formatPrice(snapshot.totalRevenue)} UZS`,
+    `25% umumiy ulush: ${formatPrice(snapshot.managerEarningsTotal)} UZS`,
+    `Hozirgi balansdan 25%: ${formatPrice(snapshot.managerEarningsCurrent)} UZS`,
+    "",
+    "Ulush jami pullik tushumning 25 foizi asosida hisoblandi.",
+  ].join("\n");
+}
+
+function formatExpenseList(expenses, snapshot) {
+  if (expenses.length === 0) {
+    return [
+      "📋 Xarajatlar",
+      "",
+      "Hozircha xarajatlar yo'q.",
+      `Joriy balans: ${formatPrice(snapshot.currentBalance)} UZS`,
+    ].join("\n");
+  }
+
+  return [
+    "📋 So'nggi xarajatlar",
+    "",
+    ...expenses.map((expense, index) => {
+      const managerLabel = expense.managerUsername ? `@${expense.managerUsername}` : "manager";
+      return `${index + 1}. ${expense.name} - ${formatPrice(expense.amount)} UZS - ${expense.createdAt} - ${managerLabel}`;
+    }),
+    "",
+    `Joriy balans: ${formatPrice(snapshot.currentBalance)} UZS`,
+  ].join("\n");
+}
+
+function formatHandoffList(handoffs, snapshot) {
+  if (handoffs.length === 0) {
+    return [
+      "🧾 Topshirilganlar",
+      "",
+      "Hozircha ownerga topshirilgan yozuv yo'q.",
+      `Joriy balans: ${formatPrice(snapshot.currentBalance)} UZS`,
+    ].join("\n");
+  }
+
+  return [
+    "🧾 Ownerga topshirilganlar",
+    "",
+    ...handoffs.map((handoff, index) => {
+      const managerLabel = handoff.managerUsername ? `@${handoff.managerUsername}` : "manager";
+      return `${index + 1}. ${formatPrice(handoff.amount)} UZS - ${handoff.createdAt} - ${handoff.note || "Topshirildi"} - ${managerLabel}`;
+    }),
+    "",
+    `Joriy balans: ${formatPrice(snapshot.currentBalance)} UZS`,
+  ].join("\n");
+}
+
 export function createManagerBot() {
   const managerToken = readOptionalEnv("MANAGER_BOT_TOKEN");
   const telegram = managerToken ? createTelegramClient(managerToken) : null;
@@ -741,6 +943,7 @@ export function createManagerBot() {
   const pendingPaymentInputs = new Map();
   const pendingOfflineBookings = new Map();
   const pendingBookingEdits = new Map();
+  const pendingBalanceInputs = new Map();
 
   async function sendManagerMessage(chatId, text, extra = {}) {
     if (!telegram) {
@@ -767,6 +970,38 @@ export function createManagerBot() {
     await sendManagerMessage(chatId, text, {
       reply_markup: buildMainKeyboard(),
     });
+  }
+
+  function getManagerActor(source = {}) {
+    return {
+      managerTelegramId: Number(source?.from?.id ?? source?.id ?? 0) || null,
+      managerChatId: Number(source?.chat?.id ?? source?.message?.chat?.id ?? 0) || null,
+      managerUsername: String(source?.from?.username ?? source?.username ?? "").trim(),
+    };
+  }
+
+  function buildOwnerExpenseMessage(expense, snapshotAfter) {
+    return [
+      "💸 Yangi xarajat",
+      "",
+      `Nomi: ${expense.name}`,
+      `Summa: ${formatPrice(expense.amount)} UZS`,
+      `Manager: ${expense.managerUsername ? `@${expense.managerUsername}` : "manager"}`,
+      `Sana: ${expense.createdAt}`,
+      `Qolgan balans: ${formatPrice(snapshotAfter.currentBalance)} UZS`,
+    ].join("\n");
+  }
+
+  function buildOwnerHandoverMessage(handoff, snapshotAfter) {
+    return [
+      "📤 Balance topshirildi",
+      "",
+      `Topshirilgan summa: ${formatPrice(handoff.amount)} UZS`,
+      `Izoh: ${handoff.note || "Topshirildi"}`,
+      `Manager: ${handoff.managerUsername ? `@${handoff.managerUsername}` : "manager"}`,
+      `Sana: ${handoff.createdAt}`,
+      `Yangi balans: ${formatPrice(snapshotAfter.currentBalance)} UZS`,
+    ].join("\n");
   }
 
   async function runDiagnosticCheck(label, handler) {
@@ -905,6 +1140,56 @@ export function createManagerBot() {
     const recipients = await listReportRecipients();
     await sendManagerMessage(chatId, formatReportRecipientsForTelegram(recipients), {
       reply_markup: buildReportRecipientsKeyboard(recipients),
+    });
+  }
+
+  async function showBalanceMenu(chatId) {
+    const snapshot = await getManagerBalanceSnapshot();
+    await sendManagerMessage(chatId, formatBalanceSummary(snapshot), {
+      reply_markup: buildBalanceKeyboard(snapshot.currentBalance > 0),
+    });
+  }
+
+  async function showExpenseList(chatId) {
+    const [expenses, snapshot] = await Promise.all([
+      listManagerExpenses({ limit: 12 }),
+      getManagerBalanceSnapshot(),
+    ]);
+
+    await sendManagerMessage(chatId, formatExpenseList(expenses, snapshot), {
+      reply_markup: buildBalanceKeyboard(snapshot.currentBalance > 0),
+    });
+  }
+
+  async function showHandoffList(chatId) {
+    const [handoffs, snapshot] = await Promise.all([
+      listManagerBalanceHandoffs({ limit: 12 }),
+      getManagerBalanceSnapshot(),
+    ]);
+
+    await sendManagerMessage(chatId, formatHandoffList(handoffs, snapshot), {
+      reply_markup: buildBalanceKeyboard(snapshot.currentBalance > 0),
+    });
+  }
+
+  async function showEarnings(chatId) {
+    const snapshot = await getManagerBalanceSnapshot();
+    await sendManagerMessage(chatId, formatManagerEarnings(snapshot), {
+      reply_markup: buildBalanceKeyboard(snapshot.currentBalance > 0),
+    });
+  }
+
+  async function showCalendarMonth(chatId, yearMonth = getCurrentYearMonth()) {
+    const calendar = await getBookingCalendarMonth(yearMonth);
+    await sendManagerMessage(chatId, formatBookingCalendarMonth(calendar), {
+      reply_markup: buildCalendarKeyboard(calendar),
+    });
+  }
+
+  async function showCalendarDay(chatId, dateText) {
+    const bookings = await listBookingsForManagerDay(dateText, { limit: 12 });
+    await sendManagerMessage(chatId, formatBookingList(`🗓 ${dateText} dagi bronlar`, bookings), {
+      reply_markup: buildCalendarDayKeyboard(bookings, dateText.slice(0, 7)),
     });
   }
 
@@ -1336,6 +1621,11 @@ export function createManagerBot() {
           return true;
         }
 
+        if (key === "balance") {
+          await showBalanceMenu(chatId);
+          return true;
+        }
+
         if (key === "status") {
           await showStatusMenu(chatId);
           return true;
@@ -1379,6 +1669,96 @@ export function createManagerBot() {
           await showFilteredBookings(chatId, bookingFilterKey);
           return true;
         }
+      }
+
+      if (data === ACTIONS.calendarNoop) {
+        await answerCallbackQuery(callbackQueryId, "Kalendardagi kunni tanlang");
+        return true;
+      }
+
+      if (data.startsWith(ACTIONS.calendarDay)) {
+        await answerCallbackQuery(callbackQueryId, "Kunlik bronlar");
+        await showCalendarDay(chatId, data.slice(ACTIONS.calendarDay.length));
+        return true;
+      }
+
+      if (data.startsWith(ACTIONS.calendarBack)) {
+        await answerCallbackQuery(callbackQueryId, "Oy kalendari");
+        await showCalendarMonth(chatId, data.slice(ACTIONS.calendarBack.length));
+        return true;
+      }
+
+      if (data.startsWith(ACTIONS.calendar)) {
+        await answerCallbackQuery(callbackQueryId, "Oy kalendari");
+        await showCalendarMonth(chatId, data.slice(ACTIONS.calendar.length));
+        return true;
+      }
+
+      if (data === ACTIONS.balance) {
+        await answerCallbackQuery(callbackQueryId, "Balans");
+        await showBalanceMenu(chatId);
+        return true;
+      }
+
+      if (data === ACTIONS.balanceExpense) {
+        pendingBalanceInputs.set(chatId, { step: "expenseName", actor: getManagerActor(callbackQuery) });
+        await answerCallbackQuery(callbackQueryId, "Xarajat nomini yuboring");
+        await sendManagerMessage(chatId, "💸 Xarajat nomini yuboring.\n\nMasalan: `Bozor xarajati`", {
+          parse_mode: "Markdown",
+        });
+        return true;
+      }
+
+      if (data === ACTIONS.balanceExpenses) {
+        await answerCallbackQuery(callbackQueryId, "Xarajatlar");
+        await showExpenseList(chatId);
+        return true;
+      }
+
+      if (data === ACTIONS.balanceHandoffs) {
+        await answerCallbackQuery(callbackQueryId, "Topshirilganlar");
+        await showHandoffList(chatId);
+        return true;
+      }
+
+      if (data === ACTIONS.balanceEarnings) {
+        await answerCallbackQuery(callbackQueryId, "Daromad");
+        await showEarnings(chatId);
+        return true;
+      }
+
+      if (data === ACTIONS.balanceHandover) {
+        const snapshot = await getManagerBalanceSnapshot();
+        await answerCallbackQuery(callbackQueryId, snapshot.currentBalance > 0 ? "Tasdiqlang" : "Balansda mablag' yo'q");
+
+        if (snapshot.currentBalance <= 0) {
+          await showBalanceMenu(chatId);
+          return true;
+        }
+
+        await sendManagerMessage(chatId, [
+          "📤 Ownerga topshirish",
+          "",
+          `Hozirgi balans: ${formatPrice(snapshot.currentBalance)} UZS`,
+          "Tasdiqlasangiz, shu summa topshirildi deb saqlanadi va balans nolga tushadi.",
+        ].join("\n"), {
+          reply_markup: buildBalanceHandoverConfirmKeyboard(),
+        });
+        return true;
+      }
+
+      if (data === ACTIONS.balanceHandoverConfirm) {
+        const result = await handOverBalanceToOwner({
+          actor: getManagerActor(callbackQuery),
+          note: "Topshirildi",
+        });
+        await answerCallbackQuery(callbackQueryId, "Balans topshirildi");
+        await notifyOwnersAboutFinanceEvent(buildOwnerHandoverMessage(result.handoff, result.snapshotAfter));
+        await sendManagerMessage(chatId, `✅ ${formatPrice(result.handoff.amount)} UZS ownerga topshirildi.`, {
+          reply_markup: buildBalanceKeyboard(result.snapshotAfter.currentBalance > 0),
+        });
+        await showBalanceMenu(chatId);
+        return true;
       }
 
       if (data.startsWith(ACTIONS.bookingDetail)) {
@@ -1852,7 +2232,7 @@ export function createManagerBot() {
       }
     } catch (error) {
       console.error(`Manager dashboard callback failed: ${formatAxiosError(error)}`);
-      await answerCallbackQuery(callbackQueryId, "Xatolik yuz berdi.");
+      await answerCallbackQuery(callbackQueryId, error instanceof Error ? error.message : "Xatolik yuz berdi.");
       return true;
     }
 
@@ -1962,6 +2342,57 @@ export function createManagerBot() {
           }
 
           return;
+        }
+
+        const pendingBalanceInput = pendingBalanceInputs.get(chatId);
+
+        if (pendingBalanceInput) {
+          try {
+            if (pendingBalanceInput.step === "expenseName") {
+              if (!text) {
+                await sendManagerMessage(chatId, "⚠️ Xarajat nomi bo'sh bo'lmasligi kerak.");
+                return;
+              }
+
+              pendingBalanceInputs.set(chatId, {
+                ...pendingBalanceInput,
+                step: "expenseAmount",
+                name: text,
+              });
+              await sendManagerMessage(chatId, "💵 Xarajat summasini yuboring.\n\nMasalan: `120000`", {
+                parse_mode: "Markdown",
+              });
+              return;
+            }
+
+            if (pendingBalanceInput.step === "expenseAmount") {
+              const amount = Number.parseInt(text.replace(/[^\d]/g, ""), 10);
+
+              if (!Number.isInteger(amount) || amount <= 0) {
+                await sendManagerMessage(chatId, "⚠️ Xarajat summasini musbat butun son bilan yuboring. Masalan: `120000`", {
+                  parse_mode: "Markdown",
+                });
+                return;
+              }
+
+              const result = await addManagerExpense({
+                name: pendingBalanceInput.name,
+                amount,
+                actor: pendingBalanceInput.actor ?? getManagerActor(message),
+              });
+
+              pendingBalanceInputs.delete(chatId);
+              await notifyOwnersAboutFinanceEvent(buildOwnerExpenseMessage(result.expense, result.snapshotAfter));
+              await sendManagerMessage(chatId, `✅ Xarajat saqlandi: ${result.expense.name} - ${formatPrice(result.expense.amount)} UZS`);
+              await showBalanceMenu(chatId);
+              return;
+            }
+          } catch (error) {
+            console.error(`Balance input failed: ${formatAxiosError(error)}`);
+            pendingBalanceInputs.delete(chatId);
+            await sendManagerMessage(chatId, error instanceof Error ? `❌ ${error.message}` : "❌ Balans amalini bajarib bo'lmadi.");
+            return;
+          }
         }
 
         const pendingBookingEdit = pendingBookingEdits.get(chatId);
@@ -2194,6 +2625,11 @@ export function createManagerBot() {
 
         if (text === BUTTONS.report) {
           await showReportMenu(chatId);
+          return;
+        }
+
+        if (text === BUTTONS.balance) {
+          await showBalanceMenu(chatId);
           return;
         }
 

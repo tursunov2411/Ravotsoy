@@ -40,6 +40,76 @@ function addDays(dateText, days) {
   }).format(date);
 }
 
+function getCurrentYearMonth() {
+  return getTodayTashkent().slice(0, 7);
+}
+
+function normalizeYearMonth(value = "") {
+  const normalized = String(value ?? "").trim();
+  return /^\d{4}-\d{2}$/.test(normalized) ? normalized : getCurrentYearMonth();
+}
+
+function formatMonthLabel(yearMonth) {
+  const [yearText, monthText] = normalizeYearMonth(yearMonth).split("-");
+  const year = Number(yearText);
+  const monthIndex = Math.max(Number(monthText) - 1, 0);
+  const monthNames = [
+    "Yanvar",
+    "Fevral",
+    "Mart",
+    "Aprel",
+    "May",
+    "Iyun",
+    "Iyul",
+    "Avgust",
+    "Sentabr",
+    "Oktabr",
+    "Noyabr",
+    "Dekabr",
+  ];
+
+  return `${monthNames[monthIndex] ?? yearMonth} ${year}`;
+}
+
+function getMonthRange(yearMonth = getCurrentYearMonth()) {
+  const normalized = normalizeYearMonth(yearMonth);
+  const [yearText, monthText] = normalized.split("-");
+  const year = Number(yearText);
+  const month = Number(monthText);
+  const startDate = `${normalized}-01`;
+  const endDateExclusive = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Asia/Tashkent",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(new Date(Date.UTC(month === 12 ? year + 1 : year, month === 12 ? 0 : month, 1)));
+
+  return {
+    yearMonth: normalized,
+    startDate,
+    endDateExclusive,
+    label: formatMonthLabel(normalized),
+  };
+}
+
+function getDateWeekdayIndex(dateText) {
+  const date = new Date(`${dateText}T00:00:00${TASHKENT_OFFSET}`);
+  return (date.getUTCDay() + 6) % 7;
+}
+
+function toTashkentDateText(value) {
+  if (!value) {
+    return "";
+  }
+
+  return new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Asia/Tashkent",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(new Date(value));
+}
+
 function buildUtcWindow(startDate, endDateExclusive) {
   return {
     startIso: new Date(`${startDate}T00:00:00${TASHKENT_OFFSET}`).toISOString(),
@@ -112,6 +182,57 @@ function summarizeBooking(record) {
     dateEnd: record.date_end ? String(record.date_end) : null,
     createdAt: String(record.created_at ?? ""),
   };
+}
+
+function getBookingEndDateExclusive(record) {
+  const startDate = String(record?.date_start ?? "").trim();
+  const dateEnd = String(record?.date_end ?? "").trim();
+
+  if (dateEnd && startDate && dateEnd > startDate) {
+    return dateEnd;
+  }
+
+  return startDate ? addDays(startDate, 1) : "";
+}
+
+function normalizeExpenseRecord(record) {
+  return {
+    id: String(record?.id ?? ""),
+    name: String(record?.name ?? "").trim(),
+    amount: Number(record?.amount ?? 0),
+    managerTelegramId: record?.manager_telegram_id ? Number(record.manager_telegram_id) : null,
+    managerChatId: record?.manager_chat_id ? Number(record.manager_chat_id) : null,
+    managerUsername: String(record?.manager_username ?? "").trim(),
+    createdAt: String(record?.created_at ?? ""),
+  };
+}
+
+function normalizeHandoffRecord(record) {
+  return {
+    id: String(record?.id ?? ""),
+    amount: Number(record?.amount ?? 0),
+    note: String(record?.note ?? "").trim(),
+    managerTelegramId: record?.manager_telegram_id ? Number(record.manager_telegram_id) : null,
+    managerChatId: record?.manager_chat_id ? Number(record.manager_chat_id) : null,
+    managerUsername: String(record?.manager_username ?? "").trim(),
+    createdAt: String(record?.created_at ?? ""),
+  };
+}
+
+function normalizeManagerActor(actor = {}) {
+  const managerTelegramId = Number(actor.managerTelegramId ?? 0);
+  const managerChatId = Number(actor.managerChatId ?? 0);
+
+  return {
+    managerTelegramId: Number.isInteger(managerTelegramId) && managerTelegramId > 0 ? managerTelegramId : null,
+    managerChatId: Number.isInteger(managerChatId) && managerChatId > 0 ? managerChatId : null,
+    managerUsername: String(actor.managerUsername ?? "").trim().replace(/^@+/, ""),
+  };
+}
+
+function isMissingFinanceTableError(error) {
+  const message = `${error?.message ?? ""} ${error?.details ?? ""} ${error?.hint ?? ""}`.toLowerCase();
+  return message.includes("manager_expenses") || message.includes("manager_balance_handoffs") || message.includes("does not exist");
 }
 
 async function fetchResources() {
@@ -244,6 +365,92 @@ async function fetchBookingsBetween(startIso, endIso) {
     .lt("start_time", endIso)
     .gt("end_time", startIso)
     .order("start_time", { ascending: true });
+
+  if (error) {
+    throw error;
+  }
+
+  return Array.isArray(data) ? data : [];
+}
+
+async function fetchBookingsOverlappingWindow(startIso, endIso, excludedStatuses = "(rejected,cancelled)") {
+  const { data, error } = await supabase
+    .from("bookings")
+    .select(
+      "id, booking_label, name, phone, source, status, payment_status, total_price, estimated_price, date_start, date_end, start_time, end_time, created_at",
+    )
+    .not("status", "in", excludedStatuses)
+    .lt("start_time", endIso)
+    .gt("end_time", startIso)
+    .order("start_time", { ascending: true });
+
+  if (error) {
+    throw error;
+  }
+
+  return Array.isArray(data) ? data : [];
+}
+
+async function fetchManagerExpensesRaw(limit = null) {
+  let query = supabase
+    .from("manager_expenses")
+    .select("id, name, amount, manager_telegram_id, manager_chat_id, manager_username, created_at")
+    .order("created_at", { ascending: false });
+
+  if (Number.isInteger(limit) && limit > 0) {
+    query = query.limit(limit);
+  }
+
+  try {
+    const { data, error } = await query;
+
+    if (error) {
+      throw error;
+    }
+
+    return Array.isArray(data) ? data.map(normalizeExpenseRecord) : [];
+  } catch (error) {
+    if (isMissingFinanceTableError(error)) {
+      return [];
+    }
+
+    throw error;
+  }
+}
+
+async function fetchManagerBalanceHandoffsRaw(limit = null) {
+  let query = supabase
+    .from("manager_balance_handoffs")
+    .select("id, amount, note, manager_telegram_id, manager_chat_id, manager_username, created_at")
+    .order("created_at", { ascending: false });
+
+  if (Number.isInteger(limit) && limit > 0) {
+    query = query.limit(limit);
+  }
+
+  try {
+    const { data, error } = await query;
+
+    if (error) {
+      throw error;
+    }
+
+    return Array.isArray(data) ? data.map(normalizeHandoffRecord) : [];
+  } catch (error) {
+    if (isMissingFinanceTableError(error)) {
+      return [];
+    }
+
+    throw error;
+  }
+}
+
+async function fetchPaidBookings() {
+  const { data, error } = await supabase
+    .from("bookings")
+    .select("id, total_price, estimated_price, payment_status, status, created_at")
+    .eq("payment_status", "paid")
+    .not("status", "in", "(rejected,cancelled)");
 
   if (error) {
     throw error;
@@ -407,6 +614,201 @@ export async function listBookingsForManager({ date = "", status = "", source = 
   }
 
   return (Array.isArray(data) ? data : []).map(summarizeBooking);
+}
+
+export async function listBookingsForManagerDay(dateText, { limit = 20 } = {}) {
+  const normalizedDate = String(dateText ?? "").trim();
+
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(normalizedDate)) {
+    throw new Error("Sana formati noto'g'ri.");
+  }
+
+  const { startIso, endIso } = buildUtcWindow(normalizedDate, addDays(normalizedDate, 1));
+  const rows = await fetchBookingsOverlappingWindow(startIso, endIso);
+  return rows.slice(0, limit).map(summarizeBooking);
+}
+
+export async function getBookingCalendarMonth(yearMonth = getCurrentYearMonth()) {
+  const range = getMonthRange(yearMonth);
+  const { startIso, endIso } = buildUtcWindow(range.startDate, range.endDateExclusive);
+  const bookings = await fetchBookingsOverlappingWindow(startIso, endIso);
+  const countsByDate = new Map();
+
+  for (const booking of bookings) {
+    const startDate = String(booking.date_start ?? "").trim();
+    const endDateExclusive = getBookingEndDateExclusive(booking);
+
+    if (!startDate || !endDateExclusive) {
+      continue;
+    }
+
+    let cursor = startDate < range.startDate ? range.startDate : startDate;
+    const stopDate = endDateExclusive < range.endDateExclusive ? endDateExclusive : range.endDateExclusive;
+
+    while (cursor < stopDate) {
+      countsByDate.set(cursor, (countsByDate.get(cursor) ?? 0) + 1);
+      cursor = addDays(cursor, 1);
+    }
+  }
+
+  const firstWeekOffset = getDateWeekdayIndex(range.startDate);
+  const gridStartDate = addDays(range.startDate, -firstWeekOffset);
+  const weeks = [];
+  let cursor = gridStartDate;
+
+  for (let weekIndex = 0; weekIndex < 6; weekIndex += 1) {
+    const days = [];
+
+    for (let dayIndex = 0; dayIndex < 7; dayIndex += 1) {
+      days.push({
+        dateText: cursor,
+        dayNumber: Number(cursor.slice(-2)),
+        inMonth: cursor.startsWith(`${range.yearMonth}-`),
+        bookingCount: countsByDate.get(cursor) ?? 0,
+      });
+      cursor = addDays(cursor, 1);
+    }
+
+    weeks.push(days);
+  }
+
+  return {
+    yearMonth: range.yearMonth,
+    label: range.label,
+    startDate: range.startDate,
+    endDateExclusive: range.endDateExclusive,
+    weeks,
+    totalBookings: bookings.length,
+    daysWithBookings: Array.from(countsByDate.values()).filter((count) => count > 0).length,
+  };
+}
+
+export async function listManagerExpenses({ limit = 12 } = {}) {
+  return fetchManagerExpensesRaw(limit);
+}
+
+export async function listManagerBalanceHandoffs({ limit = 12 } = {}) {
+  return fetchManagerBalanceHandoffsRaw(limit);
+}
+
+export async function getManagerBalanceSnapshot() {
+  const today = getTodayTashkent();
+  const [paidBookings, expenses, handoffs] = await Promise.all([
+    fetchPaidBookings(),
+    fetchManagerExpensesRaw(),
+    fetchManagerBalanceHandoffsRaw(),
+  ]);
+
+  const totalRevenue = paidBookings.reduce(
+    (sum, booking) => sum + Number(booking.total_price ?? booking.estimated_price ?? 0),
+    0,
+  );
+  const totalExpenses = expenses.reduce((sum, item) => sum + Number(item.amount ?? 0), 0);
+  const totalHandedOver = handoffs.reduce((sum, item) => sum + Number(item.amount ?? 0), 0);
+  const currentBalance = Math.max(totalRevenue - totalExpenses - totalHandedOver, 0);
+  const todayExpenseTotal = expenses
+    .filter((item) => toTashkentDateText(item.createdAt) === today)
+    .reduce((sum, item) => sum + Number(item.amount ?? 0), 0);
+
+  return {
+    totalRevenue,
+    totalExpenses,
+    totalHandedOver,
+    currentBalance,
+    todayExpenseTotal,
+    managerEarningsTotal: Math.round(totalRevenue * 0.25),
+    managerEarningsCurrent: Math.round(currentBalance * 0.25),
+    paidBookingCount: paidBookings.length,
+    expenseCount: expenses.length,
+    handoffCount: handoffs.length,
+    recentExpenses: expenses.slice(0, 8),
+    recentHandoffs: handoffs.slice(0, 8),
+  };
+}
+
+export async function addManagerExpense({ name, amount, actor = {} }) {
+  const normalizedName = String(name ?? "").trim();
+  const normalizedAmount = Number(amount);
+
+  if (!normalizedName) {
+    throw new Error("Xarajat nomi kiritilishi kerak.");
+  }
+
+  if (!Number.isInteger(normalizedAmount) || normalizedAmount <= 0) {
+    throw new Error("Xarajat summasi musbat butun son bo'lishi kerak.");
+  }
+
+  const snapshotBefore = await getManagerBalanceSnapshot();
+
+  if (snapshotBefore.currentBalance <= 0) {
+    throw new Error("Balans nol. Xarajat kiritishdan oldin tushum bo'lishi kerak.");
+  }
+
+  if (normalizedAmount > snapshotBefore.currentBalance) {
+    throw new Error(`Xarajat summasi balansdan katta. Hozirgi balans: ${formatPrice(snapshotBefore.currentBalance)} UZS.`);
+  }
+
+  const manager = normalizeManagerActor(actor);
+  const { data, error } = await supabase
+    .from("manager_expenses")
+    .insert({
+      name: normalizedName,
+      amount: normalizedAmount,
+      manager_telegram_id: manager.managerTelegramId,
+      manager_chat_id: manager.managerChatId,
+      manager_username: manager.managerUsername || null,
+    })
+    .select("id, name, amount, manager_telegram_id, manager_chat_id, manager_username, created_at")
+    .single();
+
+  if (error) {
+    if (isMissingFinanceTableError(error)) {
+      throw new Error("Balance moduli uchun yangi migration hali bazaga qo'llanmagan.");
+    }
+
+    throw error;
+  }
+
+  return {
+    expense: normalizeExpenseRecord(data),
+    snapshotBefore,
+    snapshotAfter: await getManagerBalanceSnapshot(),
+  };
+}
+
+export async function handOverBalanceToOwner({ actor = {}, note = "Topshirildi" } = {}) {
+  const snapshotBefore = await getManagerBalanceSnapshot();
+
+  if (snapshotBefore.currentBalance <= 0) {
+    throw new Error("Topshirish uchun balansda mablag' yo'q.");
+  }
+
+  const manager = normalizeManagerActor(actor);
+  const { data, error } = await supabase
+    .from("manager_balance_handoffs")
+    .insert({
+      amount: snapshotBefore.currentBalance,
+      note: String(note ?? "").trim() || "Topshirildi",
+      manager_telegram_id: manager.managerTelegramId,
+      manager_chat_id: manager.managerChatId,
+      manager_username: manager.managerUsername || null,
+    })
+    .select("id, amount, note, manager_telegram_id, manager_chat_id, manager_username, created_at")
+    .single();
+
+  if (error) {
+    if (isMissingFinanceTableError(error)) {
+      throw new Error("Balance moduli uchun yangi migration hali bazaga qo'llanmagan.");
+    }
+
+    throw error;
+  }
+
+  return {
+    handoff: normalizeHandoffRecord(data),
+    snapshotBefore,
+    snapshotAfter: await getManagerBalanceSnapshot(),
+  };
 }
 
 export async function getBusinessAnalytics(period = "today") {
@@ -706,15 +1108,23 @@ export async function getDailyReportRecipients() {
 }
 
 export async function buildDailyReportMessage() {
-  const [analytics, systemStatus] = await Promise.all([
+  const [analytics, systemStatus, balance] = await Promise.all([
     getBusinessAnalytics("today"),
     getSystemStatus(),
+    getManagerBalanceSnapshot(),
   ]);
 
   return [
     "Kunlik biznes hisobot",
     "",
     formatAnalyticsForTelegram(analytics),
+    "",
+    `Balans: ${formatPrice(balance.currentBalance)} UZS`,
+    `Xarajatlar: ${formatPrice(balance.totalExpenses)} UZS`,
+    `Ownerga topshirilgan: ${formatPrice(balance.totalHandedOver)} UZS`,
+    balance.recentExpenses.length > 0
+      ? `So'nggi xarajatlar: ${balance.recentExpenses.slice(0, 3).map((item) => `${item.name} ${formatPrice(item.amount)}`).join(", ")}`
+      : "So'nggi xarajatlar: yo'q",
     "",
     `Tizim holati: faol ${systemStatus.activeResources}, kutilayotgan ${systemStatus.pendingBookings}, tasdiq kutilmoqda ${systemStatus.awaitingConfirmation}`,
   ].join("\n");

@@ -13,6 +13,31 @@ function getManagerNotificationTargets() {
   return Array.from(new Set([managerChatId, ownerGroupChatId].map((item) => String(item ?? "").trim()).filter(Boolean)));
 }
 
+async function getOwnerNotificationTargets() {
+  const fallbackTargets = [ownerGroupChatId].map((item) => String(item ?? "").trim()).filter(Boolean);
+
+  try {
+    const { data, error } = await supabase
+      .from("report_recipients")
+      .select("telegram_chat_id")
+      .eq("is_active", true)
+      .not("telegram_chat_id", "is", null);
+
+    if (error) {
+      throw error;
+    }
+
+    const dynamicTargets = Array.isArray(data)
+      ? data.map((item) => String(item.telegram_chat_id ?? "").trim()).filter(Boolean)
+      : [];
+
+    return Array.from(new Set([...fallbackTargets, ...dynamicTargets]));
+  } catch (error) {
+    console.error(`Owner notification target lookup failed: ${formatAxiosError(error)}`);
+    return Array.from(new Set(fallbackTargets));
+  }
+}
+
 function formatDates(booking) {
   if (booking.date_start && booking.date_end) {
     return `${booking.date_start} dan ${booking.date_end} gacha`;
@@ -257,4 +282,30 @@ export async function clearManagerDecisionKeyboard(chatId, messageId, bookingId 
   } catch (error) {
     console.error(`Manager keyboard cleanup failed: ${formatAxiosError(error)}`);
   }
+}
+
+export async function notifyOwnersAboutFinanceEvent(text) {
+  if (!managerTelegram) {
+    return 0;
+  }
+
+  const message = String(text ?? "").trim();
+
+  if (!message) {
+    return 0;
+  }
+
+  let sentCount = 0;
+  const targets = await getOwnerNotificationTargets();
+
+  for (const targetChatId of targets) {
+    try {
+      await managerTelegram.sendMessage(targetChatId, message);
+      sentCount += 1;
+    } catch (error) {
+      console.error(`Owner finance notification failed for ${targetChatId}: ${formatAxiosError(error)}`);
+    }
+  }
+
+  return sentCount;
 }
