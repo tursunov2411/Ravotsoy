@@ -1,16 +1,21 @@
 import { createSupabasePrivilegedClient } from "../bots/shared.js";
 import { createTelegramClient, formatAxiosError, readOptionalEnv } from "../bots/shared.js";
+import { listManagerNotificationTargets } from "./managerAccess.js";
 
 const managerToken = readOptionalEnv("MANAGER_BOT_TOKEN");
 const customerToken = readOptionalEnv("CUSTOMER_BOT_TOKEN", "BOT_TOKEN");
 const managerChatId = readOptionalEnv("CHAT_ID");
+const managerGroupChatId = readOptionalEnv("MANAGER_GROUP_CHAT_ID");
 const ownerGroupChatId = readOptionalEnv("OWNER_GROUP_CHAT_ID");
-const managerTelegram = managerToken && managerChatId ? createTelegramClient(managerToken) : null;
+const managerTelegram = managerToken ? createTelegramClient(managerToken) : null;
 const customerTelegram = customerToken ? createTelegramClient(customerToken) : null;
 const supabase = createSupabasePrivilegedClient();
 
-function getManagerNotificationTargets() {
-  return Array.from(new Set([managerChatId, ownerGroupChatId].map((item) => String(item ?? "").trim()).filter(Boolean)));
+async function getManagerNotificationTargets() {
+  const dynamicTargets = await listManagerNotificationTargets();
+  return Array.from(
+    new Set([managerChatId, managerGroupChatId, ownerGroupChatId, ...dynamicTargets].map((item) => String(item ?? "").trim()).filter(Boolean)),
+  );
 }
 
 async function getOwnerNotificationTargets() {
@@ -98,7 +103,7 @@ async function updateNotificationState(bookingId, values) {
 }
 
 export async function notifyManagerAboutBooking(booking) {
-  if (!managerTelegram || !managerChatId || !booking?.id) {
+  if (!managerTelegram || !booking?.id) {
     return;
   }
 
@@ -122,11 +127,11 @@ export async function notifyManagerAboutBooking(booking) {
       `Narx: ${formatPrice(booking.total_price)} so'm`,
     ];
 
-    const targets = getManagerNotificationTargets();
+    const targets = await getManagerNotificationTargets();
 
     for (const targetChatId of targets) {
       await managerTelegram.sendMessage(targetChatId, lines.join("\n"), {
-        reply_markup: targetChatId === managerChatId ? buildManagerDecisionKeyboard(booking.id) : undefined,
+        reply_markup: buildManagerDecisionKeyboard(booking.id),
       });
     }
 
@@ -139,7 +144,7 @@ export async function notifyManagerAboutBooking(booking) {
 }
 
 export async function notifyManagerAboutProof(context) {
-  if (!managerTelegram || !managerChatId || !context?.booking?.id) {
+  if (!managerTelegram || !context?.booking?.id) {
     return null;
   }
 
@@ -169,23 +174,25 @@ export async function notifyManagerAboutProof(context) {
       `Dates: ${formatDates(booking)}`,
     ];
 
-    const response = await managerTelegram.sendMessage(managerChatId, lines.join("\n"), {
-      reply_markup: buildManagerDecisionKeyboard(booking.id),
-    });
+    const targets = await getManagerNotificationTargets();
+    let response = null;
 
-    for (const targetChatId of getManagerNotificationTargets()) {
-      if (targetChatId === managerChatId) {
-        continue;
+    for (const targetChatId of targets) {
+      const sent = await managerTelegram.sendMessage(targetChatId, lines.join("\n"), {
+        reply_markup: buildManagerDecisionKeyboard(booking.id),
+      });
+
+      if (!response) {
+        response = sent;
       }
-
-      await managerTelegram.sendMessage(targetChatId, lines.join("\n"));
     }
 
     const result = response?.result ?? null;
+    const fallbackChatId = Number(managerChatId || managerGroupChatId || 0);
     await updateNotificationState(booking.id, {
       manager_proof_notified_at: new Date().toISOString(),
       manager_proof_message_id: result?.message_id ?? null,
-      manager_proof_chat_id: result?.chat?.id ?? null,
+      manager_proof_chat_id: result?.chat?.id ?? (fallbackChatId > 0 ? fallbackChatId : null),
     });
 
     return result;

@@ -1,5 +1,12 @@
 import { createTelegramClient, formatAxiosError, readOptionalEnv } from "./shared.js";
 import {
+  claimManagerTransferToken,
+  createManagerTransferToken,
+  ensureLegacyManagerAccess,
+  hasManagerAccess,
+  listManagerUsers,
+} from "../services/managerAccess.js";
+import {
   approveBookingManually,
   approveBookingProof,
   cancelBookingManually,
@@ -63,6 +70,7 @@ const BUTTONS = {
   report: "🗂 Hisobotlar",
   status: "🛠 Tizim holati",
   balance: "💰 Balans",
+  control: "🔐 Nazorat",
 };
 
 const ACTIONS = {
@@ -111,6 +119,7 @@ const ACTIONS = {
   balanceHandoverConfirm: "mbal_handover_confirm",
   balanceHandoffs: "mbal_handoffs",
   balanceEarnings: "mbal_earnings",
+  control: "mctrl_",
   payment: "mpay_",
   offline: "moff_",
   offlineType: "moff_t_",
@@ -137,6 +146,16 @@ function isStartCommand(text) {
 
 function isHelpCommand(text) {
   return /^\/help(?:@\w+)?(?:\s|$)/i.test(String(text ?? "").trim());
+}
+
+function getStartPayload(text) {
+  const match = String(text ?? "").trim().match(/^\/start(?:@\w+)?(?:\s+(.+))?$/i);
+  return String(match?.[1] ?? "").trim();
+}
+
+function buildActorName(source = {}) {
+  return [source?.first_name, source?.last_name].map((item) => String(item ?? "").trim()).filter(Boolean).join(" ").trim()
+    || String(source?.username ?? "").trim();
 }
 
 function getBookingId(callbackData, prefix) {
@@ -199,6 +218,7 @@ function buildMainKeyboard() {
         { text: BUTTONS.report, callback_data: `${ACTIONS.main}report` },
         { text: BUTTONS.balance, callback_data: `${ACTIONS.main}balance` },
       ],
+      [{ text: BUTTONS.control, callback_data: `${ACTIONS.main}control` }],
       [
         { text: BUTTONS.status, callback_data: `${ACTIONS.main}status` },
         { text: BUTTONS.diagnostics, callback_data: `${ACTIONS.main}diagnostics` },
@@ -282,6 +302,16 @@ function buildReportKeyboard() {
         { text: "👤 Qabul qiluvchilar", callback_data: `${ACTIONS.report}recipients` },
         { text: "🔙 Orqaga", callback_data: ACTIONS.backMain },
       ],
+    ],
+  };
+}
+
+function buildControlKeyboard() {
+  return {
+    inline_keyboard: [
+      [{ text: "🔁 Nazoratni topshirish", callback_data: `${ACTIONS.control}transfer` }],
+      [{ text: "🔄 Yangilash", callback_data: `${ACTIONS.control}menu` }],
+      [{ text: "🔙 Orqaga", callback_data: ACTIONS.backMain }],
     ],
   };
 }
@@ -955,6 +985,19 @@ function formatHandoffList(handoffs, snapshot) {
   ].join("\n");
 }
 
+function formatControlSummary(managers) {
+  return [
+    "🔐 Manager nazorati",
+    "",
+    managers.length > 0
+      ? managers.map((manager, index) => `${index + 1}. ${manager.name || `@${manager.telegramId}`} - ${manager.role} - ${manager.telegramId}`).join("\n")
+      : "Hozircha manager biriktirilmagan.",
+    "",
+    "Nazoratni topshirish tugmasi yangi manager uchun bir martalik kod yaratadi.",
+    "Yangi manager o'z botida shu kod bilan `/start <kod>` yuboradi.",
+  ].join("\n");
+}
+
 export function createManagerBot() {
   const managerToken = readOptionalEnv("MANAGER_BOT_TOKEN");
   const telegram = managerToken ? createTelegramClient(managerToken) : null;
@@ -1280,6 +1323,13 @@ export function createManagerBot() {
     const recipients = await listReportRecipients();
     await sendManagerMessage(chatId, formatReportRecipientsForTelegram(recipients), {
       reply_markup: buildReportRecipientsKeyboard(recipients),
+    });
+  }
+
+  async function showControlMenu(chatId) {
+    const managers = await listManagerUsers();
+    await sendManagerMessage(chatId, formatControlSummary(managers), {
+      reply_markup: buildControlKeyboard(),
     });
   }
 
@@ -1766,6 +1816,11 @@ export function createManagerBot() {
           return true;
         }
 
+        if (key === "control") {
+          await showControlMenu(chatId);
+          return true;
+        }
+
         if (key === "status") {
           await showStatusMenu(chatId);
           return true;
@@ -1801,6 +1856,30 @@ export function createManagerBot() {
       if (data === `${ACTIONS.diagnostics}wake`) {
         await answerCallbackQuery(callbackQueryId, "Ulanishlar yangilanmoqda");
         await wakeExternalServices(chatId);
+        return true;
+      }
+
+      if (data === `${ACTIONS.control}menu`) {
+        await answerCallbackQuery(callbackQueryId, "Nazorat");
+        await showControlMenu(chatId);
+        return true;
+      }
+
+      if (data === `${ACTIONS.control}transfer`) {
+        const transfer = await createManagerTransferToken(callbackQuery?.from?.id);
+        await answerCallbackQuery(callbackQueryId, "Topshirish kodi yaratildi");
+        await sendManagerMessage(chatId, [
+          "🔁 Manager nazoratini topshirish",
+          "",
+          "Yangi manager quyidagi komandani o'z chatida yuborsin:",
+          `/start ${transfer.token}`,
+          "",
+          `Kod amal qilish muddati: ${transfer.expiresAt}`,
+          "Kod bir martalik va yangi manager claim qilgach oldingi manager nazorati olib tashlanadi.",
+        ].join("\n"), {
+          parse_mode: "Markdown",
+          reply_markup: buildControlKeyboard(),
+        });
         return true;
       }
 
@@ -2395,10 +2474,58 @@ export function createManagerBot() {
         const chatId = message.chat.id;
         const isPrivateChat = message.chat.type === "private";
         const text = String(message.text ?? "").trim();
+        const startPayload = getStartPayload(text);
+        const actorName = buildActorName(message.from);
+        const actorPhone = String(message?.contact?.phone_number ?? "").trim();
         const pendingImageUpload = pendingImageUploads.get(chatId);
         const pendingRecipientInput = pendingRecipientInputs.get(chatId);
         const pendingOfflineBooking = pendingOfflineBookings.get(chatId);
         const linkedRecipient = await maybeLinkReportRecipient(message);
+
+        await ensureLegacyManagerAccess({
+          telegramId: message?.from?.id,
+          name: actorName,
+          phone: actorPhone,
+        });
+
+        if (startPayload) {
+          try {
+            const claimed = await claimManagerTransferToken(startPayload, {
+              telegramId: message?.from?.id,
+              name: actorName,
+              phone: actorPhone,
+            });
+
+            await sendManagerMessage(chatId, [
+              "✅ Manager nazorati sizga topshirildi.",
+              "",
+              `Yangi manager: ${claimed.newManager.name || actorName || claimed.newManager.telegramId}`,
+              `Telegram ID: ${claimed.newManager.telegramId}`,
+            ].join("\n"));
+            await showMainMenu(chatId, "👋 Manager panel siz uchun tayyor.");
+            return;
+          } catch (error) {
+            if (!isStartCommand(text)) {
+              await sendManagerMessage(chatId, error instanceof Error ? `❌ ${error.message}` : "❌ Nazoratni qabul qilib bo'lmadi.");
+              return;
+            }
+          }
+        }
+
+        const hasAccess = await hasManagerAccess(message?.from?.id);
+
+        if (!hasAccess) {
+          if (isStartCommand(text) || isHelpCommand(text)) {
+            await sendManagerMessage(chatId, [
+              "⛔ Sizda manager panelga kirish huquqi yo'q.",
+              "",
+              "Agar nazorat topshirilgan bo'lsa, current manager yuborgan `/start <kod>` komandasi bilan kiring.",
+            ].join("\n"), {
+              parse_mode: "Markdown",
+            });
+          }
+          return;
+        }
 
         if (linkedRecipient && (isStartCommand(text) || isHelpCommand(text) || message?.contact)) {
           await sendManagerMessage(chatId, `🔔 Hisobot qabul qiluvchisi bog'landi: ${linkedRecipient.label || linkedRecipient.telegramHandle || linkedRecipient.phone}.`);
@@ -2779,6 +2906,11 @@ export function createManagerBot() {
           return;
         }
 
+        if (text === BUTTONS.control) {
+          await showControlMenu(chatId);
+          return;
+        }
+
         if (text === BUTTONS.status) {
           await showStatusMenu(chatId);
           return;
@@ -2794,6 +2926,16 @@ export function createManagerBot() {
       }
 
       if (!callbackQuery?.id) {
+        return;
+      }
+
+      await ensureLegacyManagerAccess({
+        telegramId: callbackQuery?.from?.id,
+        name: buildActorName(callbackQuery?.from),
+      });
+
+      if (!(await hasManagerAccess(callbackQuery?.from?.id))) {
+        await answerCallbackQuery(callbackQuery.id, "Sizda manager panel huquqi yo'q");
         return;
       }
 
