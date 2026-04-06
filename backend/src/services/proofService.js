@@ -367,6 +367,47 @@ export async function fetchBookingsForTelegramUser(telegramId) {
     }));
 }
 
+export async function cancelBookingForTelegramUser(telegramId, bookingId) {
+  const normalizedTelegramId = Number(telegramId);
+  const normalizedBookingId = requireText(bookingId, "bookingId");
+
+  if (!Number.isInteger(normalizedTelegramId) || normalizedTelegramId <= 0) {
+    throw new Error("Telegram foydalanuvchisi topilmadi.");
+  }
+
+  const { data: user, error: userError } = await supabase
+    .from("users")
+    .select("id")
+    .eq("telegram_id", normalizedTelegramId)
+    .maybeSingle();
+
+  if (userError) {
+    throw userError;
+  }
+
+  if (!user?.id) {
+    throw new Error("Foydalanuvchi topilmadi.");
+  }
+
+  const booking = await fetchBookingRow(normalizedBookingId);
+
+  if (!booking) {
+    throw new Error("Bron topilmadi.");
+  }
+
+  if (String(booking.user_id ?? "") !== String(user.id)) {
+    throw new Error("Bu bron sizga tegishli emas.");
+  }
+
+  const status = String(booking.status ?? "");
+
+  if (["checked_in", "completed", "rejected", "cancelled"].includes(status)) {
+    throw new Error("Bu bronni endi bekor qilib bo'lmaydi.");
+  }
+
+  return cancelBookingManually(normalizedBookingId);
+}
+
 export async function fetchBookingContext(bookingId) {
   const normalizedBookingId = requireText(bookingId, "bookingId");
   const { data, error } = await supabase
@@ -696,8 +737,8 @@ export async function updateBookingPriceManually(bookingId, totalPrice) {
   const normalizedBookingId = requireText(bookingId, "bookingId");
   const normalizedTotalPrice = Number.parseInt(String(totalPrice ?? ""), 10);
 
-  if (!Number.isInteger(normalizedTotalPrice) || normalizedTotalPrice <= 0) {
-    throw new Error("Narx musbat butun son bo'lishi kerak.");
+  if (!Number.isInteger(normalizedTotalPrice) || normalizedTotalPrice < 0) {
+    throw new Error("Narx 0 yoki undan katta butun son bo'lishi kerak.");
   }
 
   const { error } = await supabase

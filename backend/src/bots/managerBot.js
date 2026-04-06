@@ -45,6 +45,7 @@ import {
 } from "../services/managerNotifications.js";
 
 const BUTTONS = {
+  diagnostics: "🩺 Diagnostika",
   bookings: "📚 Bronlar",
   resources: "🏡 Resurslar",
   pricing: "💵 Narxlar",
@@ -56,6 +57,7 @@ const BUTTONS = {
 };
 
 const ACTIONS = {
+  diagnostics: "mdiag_",
   view: "view_",
   approve: "approve_",
   reject: "reject_",
@@ -166,7 +168,20 @@ function buildMainKeyboard() {
       ],
       [
         { text: BUTTONS.status, callback_data: `${ACTIONS.main}status` },
+        { text: BUTTONS.diagnostics, callback_data: `${ACTIONS.main}diagnostics` },
       ],
+    ],
+  };
+}
+
+function buildStatusKeyboard() {
+  return {
+    inline_keyboard: [
+      [
+        { text: "🔄 Yangilash", callback_data: `${ACTIONS.diagnostics}status` },
+        { text: BUTTONS.diagnostics, callback_data: `${ACTIONS.diagnostics}run` },
+      ],
+      [{ text: "🔙 Ortga", callback_data: ACTIONS.backMain }],
     ],
   };
 }
@@ -608,6 +623,48 @@ function formatSystemStatus(status) {
   ].join("\n");
 }
 
+function formatDuration(durationMs) {
+  const normalized = Math.max(Number(durationMs ?? 0), 0);
+
+  if (normalized >= 1000) {
+    return `${(normalized / 1000).toFixed(1)}s`;
+  }
+
+  return `${normalized}ms`;
+}
+
+function formatDiagnosticTime(value = new Date()) {
+  return new Intl.DateTimeFormat("en-GB", {
+    timeZone: "Asia/Tashkent",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hour12: false,
+  }).format(value);
+}
+
+function formatDiagnosticsReport(report) {
+  const iconByStatus = {
+    ok: "OK",
+    warning: "WARN",
+    error: "ERR",
+  };
+
+  return [
+    "🩺 Diagnostika",
+    "",
+    `Tekshirildi: ${report.ranAt}`,
+    `Umumiy vaqt: ${formatDuration(report.totalMs)}`,
+    report.hasSlowChecks ? "Render cold start sabab ba'zi javoblar sekin bo'lishi mumkin." : "",
+    "",
+    ...report.checks.map((check) =>
+      `${iconByStatus[check.status] || "-"} ${check.label}: ${check.detail} (${formatDuration(check.durationMs)})`),
+  ].filter(Boolean).join("\n");
+}
+
 function formatBookingDetail(booking) {
   return [
     "🧾 Bron tafsilotlari",
@@ -709,6 +766,93 @@ export function createManagerBot() {
   async function showMainMenu(chatId, text = "👋 Manager panel tayyor.") {
     await sendManagerMessage(chatId, text, {
       reply_markup: buildMainKeyboard(),
+    });
+  }
+
+  async function runDiagnosticCheck(label, handler) {
+    const startedAt = Date.now();
+
+    try {
+      const result = await handler();
+      const durationMs = Date.now() - startedAt;
+      const detail = typeof result === "string" && result.trim() ? result.trim() : "Connected";
+      return {
+        label,
+        status: durationMs >= 2500 ? "warning" : "ok",
+        detail: durationMs >= 2500 ? `${detail}. Response was slow but successful.` : detail,
+        durationMs,
+      };
+    } catch (error) {
+      return {
+        label,
+        status: "error",
+        detail: formatAxiosError(error),
+        durationMs: Date.now() - startedAt,
+      };
+    }
+  }
+
+  async function collectDiagnostics() {
+    const startedAt = Date.now();
+    const checks = [];
+
+    checks.push(await runDiagnosticCheck("Backend", async () => `Manager bot process is awake. Uptime ${Math.round(process.uptime())}s`));
+    checks.push(await runDiagnosticCheck("Supabase", async () => {
+      const status = await getSystemStatus();
+      return `Resources ${status.activeResources}, pending bookings ${status.pendingBookings}`;
+    }));
+    checks.push(await runDiagnosticCheck("Booking engine", async () => {
+      const options = await getTripBuilderOptions();
+      return `${options.length} resource types loaded`;
+    }));
+    checks.push(await runDiagnosticCheck("Payment settings", async () => {
+      const settings = await getSitePaymentSettings();
+      const populatedFields = [
+        settings.cardNumber,
+        settings.cardHolder,
+        settings.instructions,
+      ].filter((item) => String(item ?? "").trim()).length;
+
+      return populatedFields >= 2
+        ? "Payment settings look available"
+        : "Payment settings are reachable but partly empty";
+    }));
+
+    if (telegram) {
+      checks.push(await runDiagnosticCheck("Telegram API", async () => {
+        const result = await telegram.callTelegram("getMe", {});
+        const bot = result?.result ?? result;
+        const username = String(bot?.username ?? "").trim();
+        return username ? `Connected as @${username}` : "Telegram API responded";
+      }));
+    } else {
+      checks.push({
+        label: "Telegram API",
+        status: "warning",
+        detail: "MANAGER_BOT_TOKEN is not configured",
+        durationMs: 0,
+      });
+    }
+
+    return {
+      ranAt: formatDiagnosticTime(),
+      totalMs: Date.now() - startedAt,
+      hasSlowChecks: checks.some((check) => check.status === "warning"),
+      checks,
+    };
+  }
+
+  async function showStatusMenu(chatId) {
+    const status = await getSystemStatus();
+    await sendManagerMessage(chatId, formatSystemStatus(status), {
+      reply_markup: buildStatusKeyboard(),
+    });
+  }
+
+  async function showDiagnostics(chatId) {
+    const report = await collectDiagnostics();
+    await sendManagerMessage(chatId, formatDiagnosticsReport(report), {
+      reply_markup: buildStatusKeyboard(),
     });
   }
 
@@ -1193,10 +1337,12 @@ export function createManagerBot() {
         }
 
         if (key === "status") {
-          const status = await getSystemStatus();
-          await sendManagerMessage(chatId, formatSystemStatus(status), {
-            reply_markup: buildMainKeyboard(),
-          });
+          await showStatusMenu(chatId);
+          return true;
+        }
+
+        if (key === "diagnostics") {
+          await showDiagnostics(chatId);
           return true;
         }
 
@@ -1207,6 +1353,18 @@ export function createManagerBot() {
       if (data === ACTIONS.backMain) {
         await answerCallbackQuery(callbackQueryId, "Bosh menyu");
         await showMainMenu(chatId, "🏠 Boshqaruv paneli");
+        return true;
+      }
+
+      if (data === `${ACTIONS.diagnostics}status`) {
+        await answerCallbackQuery(callbackQueryId, "Tizim holati");
+        await showStatusMenu(chatId);
+        return true;
+      }
+
+      if (data === `${ACTIONS.diagnostics}run`) {
+        await answerCallbackQuery(callbackQueryId, "Diagnostika ishga tushdi");
+        await showDiagnostics(chatId);
         return true;
       }
 
@@ -1327,7 +1485,7 @@ export function createManagerBot() {
         const bookingId = data.slice(ACTIONS.bookingPrice.length);
         pendingBookingEdits.set(chatId, { type: "price", bookingId });
         await answerCallbackQuery(callbackQueryId, "Yangi narx yuboring");
-        await sendManagerMessage(chatId, "💵 Yangi narxni yuboring.\n\nMasalan: `1750000`", {
+        await sendManagerMessage(chatId, "💵 Yangi narxni yuboring.\n\nMasalan: `1750000`\nBepul bron uchun `0` ham yuborishingiz mumkin.", {
           parse_mode: "Markdown",
         });
         return true;
@@ -1839,8 +1997,8 @@ export function createManagerBot() {
             if (pendingBookingEdit.type === "price") {
               const numericPrice = Number.parseInt(text.replace(/[^\d]/g, ""), 10);
 
-              if (!Number.isInteger(numericPrice) || numericPrice <= 0) {
-                await sendManagerMessage(chatId, "⚠️ Narxni butun son bilan yuboring. Masalan: `1750000`", {
+              if (!Number.isInteger(numericPrice) || numericPrice < 0) {
+                await sendManagerMessage(chatId, "⚠️ Narxni butun son bilan yuboring. Masalan: `1750000`. Bepul bron uchun `0` yuborishingiz mumkin.", {
                   parse_mode: "Markdown",
                 });
                 return;
@@ -1939,7 +2097,7 @@ export function createManagerBot() {
                 phone: text === "-" ? "Offlayn mijoz" : text,
                 step: "price",
               });
-              await sendManagerMessage(chatId, "💵 Yakuniy narxni butun son ko'rinishida yuboring.\n\nMasalan: `450000`", {
+              await sendManagerMessage(chatId, "💵 Yakuniy narxni butun son ko'rinishida yuboring.\n\nMasalan: `450000`\nBepul bron uchun `0` yuborishingiz mumkin.", {
                 parse_mode: "Markdown",
               });
               return;
@@ -1948,8 +2106,8 @@ export function createManagerBot() {
             if (pendingOfflineBooking.step === "price") {
               const price = Number.parseInt(text.replace(/[^\d]/g, ""), 10);
 
-              if (!Number.isInteger(price) || price <= 0) {
-                await sendManagerMessage(chatId, "⚠️ Narxni to'g'ri yuboring. Masalan: `450000`", {
+              if (!Number.isInteger(price) || price < 0) {
+                await sendManagerMessage(chatId, "⚠️ Narxni to'g'ri yuboring. Masalan: `450000`. Bepul bron uchun `0` yuborishingiz mumkin.", {
                   parse_mode: "Markdown",
                 });
                 return;
@@ -2040,10 +2198,12 @@ export function createManagerBot() {
         }
 
         if (text === BUTTONS.status) {
-          const status = await getSystemStatus();
-          await sendManagerMessage(chatId, formatSystemStatus(status), {
-            reply_markup: buildMainKeyboard(),
-          });
+          await showStatusMenu(chatId);
+          return;
+        }
+
+        if (text === BUTTONS.diagnostics) {
+          await showDiagnostics(chatId);
           return;
         }
 

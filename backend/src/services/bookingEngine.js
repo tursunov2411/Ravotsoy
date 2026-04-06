@@ -471,10 +471,14 @@ export async function createBooking(rawRequest) {
 }
 
 export async function createOfflineBooking(rawRequest) {
-  const offlinePrice = requirePositiveInteger(
-    rawRequest.totalPrice ?? rawRequest.total_price ?? rawRequest.price,
-    "totalPrice",
+  const offlinePrice = Number.parseInt(
+    String(rawRequest.totalPrice ?? rawRequest.total_price ?? rawRequest.price ?? ""),
+    10,
   );
+
+  if (!Number.isInteger(offlinePrice) || offlinePrice < 0) {
+    throw new Error("totalPrice must be zero or greater");
+  }
 
   const created = await createBooking({
     ...rawRequest,
@@ -535,11 +539,15 @@ export async function createOfflineBooking(rawRequest) {
     }
   }
 
-  const booking = await fetchBookingDetails(bookingId);
+  const [booking, paymentConfig] = await Promise.all([
+    fetchBookingDetails(bookingId),
+    fetchPaymentConfig(offlinePrice),
+  ]);
 
   return {
     ...created,
     totalPrice: offlinePrice,
+    payment: paymentConfig,
     booking,
   };
 }

@@ -6,15 +6,21 @@ import {
 } from "./shared.js";
 import { createBooking, getTripBuilderOptions, quoteBooking } from "../services/bookingEngine.js";
 import { buildSelectionLabel, normalizeResourceSelections, summarizeResourceSelections } from "../services/bookingMetadata.js";
-import { fetchBookingsForTelegramUser, submitBookingProof, upsertTelegramUser } from "../services/proofService.js";
+import {
+  cancelBookingForTelegramUser,
+  fetchBookingsForTelegramUser,
+  submitBookingProof,
+  upsertTelegramUser,
+} from "../services/proofService.js";
 import { getTelegramPrefill } from "../services/telegramFlow.js";
+import { getLatestServiceMedia } from "../services/mediaLibrary.js";
 
 const BUTTONS = {
-  booking: "Bron boshlash",
-  resources: "Joylar",
-  myBookings: "Mening bronlarim",
-  contact: "Aloqa",
-  help: "Yordam",
+  booking: "🧺 Bron boshlash",
+  resources: "🏡 Joylar",
+  myBookings: "📚 Mening bronlarim",
+  contact: "📞 Aloqa",
+  help: "❓ Yordam",
 };
 
 const CALLBACKS = {
@@ -28,6 +34,16 @@ const CALLBACKS = {
   nights: "night_",
   confirm: "confirm_booking",
   cancel: "cancel_booking",
+  catalogNav: "catalog_nav_",
+  catalogAdd: "catalog_add_",
+  catalogRemove: "catalog_remove_",
+  catalogStart: "catalog_start",
+  catalogBack: "catalog_back",
+  proofConfirm: "proof_confirm",
+  proofCancel: "proof_cancel",
+  bookingCancel: "mybooking_cancel_",
+  bookingCancelConfirm: "mybooking_cancel_confirm_",
+  bookingCancelBack: "mybooking_cancel_back_",
 };
 
 const BOOKING_ID_PATTERN =
@@ -182,6 +198,136 @@ function buildMainKeyboard() {
   };
 }
 
+function buildWelcomeMessage() {
+  return [
+    "Assalomu alaykum!",
+    "",
+    "Ravotsoy botiga xush kelibsiz.",
+    "Bu yerda joylarni rasm va ma'lumot bilan ko'rib chiqib, savatga qo'shib, keyin bronni davom ettirishingiz mumkin.",
+    "",
+    "Asosiy bo'limlar:",
+    `${BUTTONS.booking} - bron jarayonini boshlash`,
+    `${BUTTONS.resources} - joylarni ko'rish`,
+    `${BUTTONS.myBookings} - mavjud bronlarni tekshirish`,
+    `${BUTTONS.contact} - aloqa ma'lumotlari`,
+  ].join("\n");
+}
+
+function buildHelpMessage() {
+  return [
+    "Yordam",
+    "",
+    `1. ${BUTTONS.booking} yoki ${BUTTONS.resources} ni bosing.`,
+    "2. Joylarni rasm bilan ko'rib chiqing va savatga qo'shing.",
+    "3. Bronlash tugmasi orqali mehmonlar soni, sana, ism va telefonni kiriting.",
+    "4. Bot sizga to'lov ma'lumotlari va bron ID beradi.",
+    "5. To'lovdan keyin chekni shu chatga yuboring.",
+  ].join("\n");
+}
+
+function isRoomOption(option) {
+  return String(option?.resourceType ?? "").startsWith("room_");
+}
+
+function buildCatalogSelectionKey(resourceType, includeTapchan) {
+  return `${resourceType}:${includeTapchan === false ? "without" : "with"}`;
+}
+
+function getSelectionQuantity(selections, resourceType, includeTapchan = true) {
+  const normalized = normalizeResourceSelections(selections);
+  const match = normalized.find(
+    (item) => buildCatalogSelectionKey(item.resourceType, item.includeTapchan) === buildCatalogSelectionKey(resourceType, includeTapchan),
+  );
+  return Number(match?.quantity ?? 0);
+}
+
+function formatOptionDescription(option) {
+  const lines = [
+    `💵 Asosiy narx: ${formatPrice(option.basePrice)} so'm`,
+    `👥 Sig'im: ${option.unitCapacity} kishi`,
+    `🧩 Mavjud birlik: ${option.availableUnits} ta`,
+    option.pricePerExtraPerson > 0
+      ? `➕ Qo'shimcha mehmon: ${formatPrice(option.pricePerExtraPerson)} so'm`
+      : "➕ Qo'shimcha mehmon narxi: yo'q",
+  ];
+
+  if (option.bookingMode === "stay") {
+    lines.push("🌙 Format: tunab qolish");
+  } else {
+    lines.push("☀️ Format: kunlik dam olish");
+  }
+
+  if (option.includesTapchan && isRoomOption(option)) {
+    lines.push(`🏷 Tapchan bilan: ${formatPrice(option.basePrice)} so'm`);
+    lines.push(`🏷 Tapchansiz: ${formatPrice(Math.round(option.basePrice * (1 - option.discountIfExcluded)))} so'm`);
+  }
+
+  return lines.join("\n");
+}
+
+function buildCatalogCaption(option, selections) {
+  const withTapchanCount = getSelectionQuantity(selections, option.resourceType, true);
+  const withoutTapchanCount = getSelectionQuantity(selections, option.resourceType, false);
+  const bucketSummary = summarizeSelections(selections);
+
+  return [
+    `✨ ${option.label}`,
+    "",
+    formatOptionDescription(option),
+    "",
+    option.includesTapchan && isRoomOption(option)
+      ? `🧺 Savatda: tapchan bilan x${withTapchanCount}, tapchansiz x${withoutTapchanCount}`
+      : `🧺 Savatda: x${withTapchanCount}`,
+    `📌 Jami savat: ${bucketSummary}`,
+    "",
+    "Pastdagi tugmalar bilan tariflarni almashtiring yoki savatga qo'shing.",
+  ].join("\n");
+}
+
+function buildCatalogKeyboard(option, index, total, selections) {
+  const withTapchanCount = getSelectionQuantity(selections, option.resourceType, true);
+  const withoutTapchanCount = getSelectionQuantity(selections, option.resourceType, false);
+  const rows = [
+    [
+      { text: "⬅️ Oldingi", callback_data: `${CALLBACKS.catalogNav}${Math.max(index - 1, total - 1)}` },
+      { text: `${index + 1}/${total}`, callback_data: "noop" },
+      { text: "Keyingi ➡️", callback_data: `${CALLBACKS.catalogNav}${(index + 1) % total}` },
+    ],
+  ];
+
+  if (option.includesTapchan && isRoomOption(option)) {
+    rows.push([
+      { text: `🛏➕ Tapchan bilan (${withTapchanCount})`, callback_data: `${CALLBACKS.catalogAdd}${option.resourceType}:with` },
+      { text: `🚫➕ Tapchansiz (${withoutTapchanCount})`, callback_data: `${CALLBACKS.catalogAdd}${option.resourceType}:without` },
+    ]);
+    rows.push([
+      { text: "🛏➖ Tapchan bilan", callback_data: `${CALLBACKS.catalogRemove}${option.resourceType}:with` },
+      { text: "🚫➖ Tapchansiz", callback_data: `${CALLBACKS.catalogRemove}${option.resourceType}:without` },
+    ]);
+  } else {
+    rows.push([
+      { text: `➕ Savatga qo'shish (${withTapchanCount})`, callback_data: `${CALLBACKS.catalogAdd}${option.resourceType}:with` },
+      { text: "➖ Kamaytirish", callback_data: `${CALLBACKS.catalogRemove}${option.resourceType}:with` },
+    ]);
+  }
+
+  rows.push([{ text: "🧺 Bronlash", callback_data: CALLBACKS.catalogStart }]);
+  rows.push([{ text: "🔙 Bosh menyu", callback_data: CALLBACKS.catalogBack }]);
+
+  return {
+    inline_keyboard: rows,
+  };
+}
+
+function buildProofConfirmationKeyboard() {
+  return {
+    inline_keyboard: [
+      [{ text: "✅ Ha, bu haqiqiy to'lov cheki", callback_data: CALLBACKS.proofConfirm }],
+      [{ text: "🔁 Yo'q, qayta yuboraman", callback_data: CALLBACKS.proofCancel }],
+    ],
+  };
+}
+
 function buildContactKeyboard() {
   return {
     keyboard: [
@@ -246,32 +392,32 @@ function buildSelectionsPayload(state) {
 
 function buildBookingSummary(data, quote = null) {
   const lines = [
-    "Bron xulosasi:",
-    `Tanlov: ${summarizeSelections(data.selections ?? [])}`,
+    "🧾 Bron xulosasi:",
+    `🧺 Tanlov: ${summarizeSelections(data.selections ?? [])}`,
   ];
 
   if (Number(data.guests ?? 0) > 0) {
-    lines.push(`Mehmonlar: ${data.guests} kishi`);
+    lines.push(`👥 Mehmonlar: ${data.guests} kishi`);
   }
 
   if (data.date_start) {
     lines.push(
       data.date_end
-        ? `Sanalar: ${data.date_start} dan ${data.date_end} gacha`
-        : `Sana: ${data.date_start}`,
+        ? `📅 Sanalar: ${data.date_start} dan ${data.date_end} gacha`
+        : `📅 Sana: ${data.date_start}`,
     );
   }
 
   if (data.name) {
-    lines.push(`Ism: ${data.name}`);
+    lines.push(`👤 Ism: ${data.name}`);
   }
 
   if (data.phone) {
-    lines.push(`Telefon: ${data.phone}`);
+    lines.push(`📞 Telefon: ${data.phone}`);
   }
 
   if (quote?.totalPrice) {
-    lines.push(`Narx: ${formatPrice(quote.totalPrice)} so'm`);
+    lines.push(`💰 Narx: ${formatPrice(quote.totalPrice)} so'm`);
   }
 
   return lines.join("\n");
@@ -281,29 +427,29 @@ function buildPaymentMessage(result) {
   const payment = result?.payment ?? {};
   const booking = result?.booking ?? {};
   const lines = [
-    "Bron yaratildi.",
-    `Bron ID: ${result?.bookingId ?? ""}`,
-    `Tanlov: ${booking.booking_label || result?.bookingLabel || "Ko'rsatilmagan"}`,
-    `Umumiy narx: ${formatPrice(result?.totalPrice ?? 0)} so'm`,
-    `Hozir to'lanadi: ${formatPrice(payment.requiredAmount ?? result?.totalPrice ?? 0)} so'm`,
+    "🎉 Bron yaratildi.",
+    `🆔 Bron ID: ${result?.bookingId ?? ""}`,
+    `🧺 Tanlov: ${booking.booking_label || result?.bookingLabel || "Ko'rsatilmagan"}`,
+    `💰 Umumiy narx: ${formatPrice(result?.totalPrice ?? 0)} so'm`,
+    `💳 Hozir to'lanadi: ${formatPrice(payment.requiredAmount ?? result?.totalPrice ?? 0)} so'm`,
   ];
 
   if (payment.depositPercentage) {
-    lines.push(`Talab qilinadigan avans: ${payment.depositPercentage}%`);
+    lines.push(`📌 Talab qilinadigan avans: ${payment.depositPercentage}%`);
   }
 
   if (payment.cardNumber) {
-    lines.push(`Karta raqami: ${payment.cardNumber}`);
+    lines.push(`💳 Karta raqami: ${payment.cardNumber}`);
   } else {
-    lines.push("Karta raqami: admin panelda kiritilmagan");
+    lines.push("💳 Karta raqami: admin panelda kiritilmagan");
   }
 
   if (payment.cardHolder) {
-    lines.push(`Karta egasi: ${payment.cardHolder}`);
+    lines.push(`👤 Karta egasi: ${payment.cardHolder}`);
   }
 
   if (payment.managerTelegram) {
-    lines.push(`To'lov bo'yicha menejer: @${payment.managerTelegram}`);
+    lines.push(`📞 To'lov bo'yicha menejer: @${payment.managerTelegram}`);
   }
 
   if (payment.instructions) {
@@ -312,7 +458,7 @@ function buildPaymentMessage(result) {
   }
 
   lines.push("");
-  lines.push("To'lovni yuborgach chekni shu chatga foto, PDF yoki link ko'rinishida jo'nating.");
+  lines.push("📎 To'lovni yuborgach chekni shu chatga foto, PDF yoki link ko'rinishida jo'nating.");
 
   return lines.join("\n");
 }
@@ -320,30 +466,57 @@ function buildPaymentMessage(result) {
 function buildBookingConfirmationKeyboard() {
   return {
     inline_keyboard: [
-      [{ text: "Tasdiqlash", callback_data: CALLBACKS.confirm }],
-      [{ text: "Bekor qilish", callback_data: CALLBACKS.cancel }],
+      [{ text: "✅ Tasdiqlash", callback_data: CALLBACKS.confirm }],
+      [{ text: "❌ Bekor qilish", callback_data: CALLBACKS.cancel }],
     ],
   };
 }
 
 function buildTrackingStatusLabel(status) {
   if (status === "awaiting confirmation") {
-    return "awaiting confirmation";
+    return "Tekshiruvda";
   }
 
   if (status === "confirmed") {
-    return "confirmed";
+    return "Tasdiqlangan";
   }
 
   if (status === "checked_in") {
-    return "checked in";
+    return "Joy band";
   }
 
   if (status === "rejected") {
-    return "rejected";
+    return "Rad etilgan";
   }
 
-  return "pending";
+  return "Kutilmoqda";
+}
+
+function isBookingCancellable(booking) {
+  return ["pending", "proof_submitted", "confirmed"].includes(String(booking?.status ?? "").trim());
+}
+
+function buildBookingCancelKeyboard(bookingId, confirm = false) {
+  if (!bookingId) {
+    return undefined;
+  }
+
+  if (confirm) {
+    return {
+      inline_keyboard: [
+        [
+          { text: "✅ Ha, bekor qilish", callback_data: `${CALLBACKS.bookingCancelConfirm}${bookingId}` },
+          { text: "🔙 Ortga", callback_data: `${CALLBACKS.bookingCancelBack}${bookingId}` },
+        ],
+      ],
+    };
+  }
+
+  return {
+    inline_keyboard: [
+      [{ text: "❌ Bronni bekor qilish", callback_data: `${CALLBACKS.bookingCancel}${bookingId}` }],
+    ],
+  };
 }
 
 function buildResourceMenuKeyboard(options, selections) {
@@ -487,7 +660,7 @@ export function createCustomerBot() {
     }
   }
 
-  async function sendMainMenu(chatId, text = "Assalomu alaykum! Bronni shu yerda davom ettirishingiz mumkin.") {
+  async function sendMainMenu(chatId, text = buildWelcomeMessage()) {
     clearChatState(chatId);
     await telegram.sendMessage(chatId, text, {
       reply_markup: buildMainKeyboard(),
@@ -501,30 +674,21 @@ export function createCustomerBot() {
     });
   }
 
-  async function sendResources(chatId) {
+  async function sendResources(chatId, intro = "Joylar katalogi") {
     const options = await fetchTripOptions();
 
     if (options.length === 0) {
-      await telegram.sendMessage(chatId, "Hozircha bron uchun resurslar mavjud emas.", {
+      await telegram.sendMessage(chatId, "😕 Hozircha bron uchun resurslar mavjud emas.", {
         reply_markup: buildMainKeyboard(),
       });
       return;
     }
-
-    const lines = options.map((item) => {
-      const base = `${item.label}: ${item.availableUnits} ta, ${item.unitCapacity} kishigacha, ${formatPrice(item.basePrice)} so'm`;
-      const extra = item.pricePerExtraPerson > 0
-        ? `, qo'shimcha odam ${formatPrice(item.pricePerExtraPerson)} so'm`
-        : "";
-      const tapchan = item.includesTapchan
-        ? `, tapchan chiqarilsa ${Math.round(item.discountIfExcluded * 100)}% chegirma`
-        : "";
-      return `${base}${extra}${tapchan}`;
+    const state = setChatState(chatId, "catalog", {
+      options,
+      selections: normalizeResourceSelections(getChatState(chatId)?.data?.selections ?? []),
+      catalogIndex: 0,
     });
-
-    await telegram.sendMessage(chatId, ["Mavjud resurslar:", "", ...lines].join("\n"), {
-      reply_markup: buildMainKeyboard(),
-    });
+    await showCatalogCard(chatId, state, intro);
   }
 
   async function sendMyBookings(chatId, telegramId) {
@@ -537,23 +701,76 @@ export function createCustomerBot() {
       return;
     }
 
-    const lines = ["My bookings", ""];
-
-    for (const booking of bookings) {
-      lines.push(`Bron ID: ${booking.id}`);
-      lines.push(`Tanlov: ${booking.booking_label || booking.resource_summary || "Ko'rsatilmagan"}`);
-      lines.push(`Status: ${buildTrackingStatusLabel(booking.tracking_status)}`);
-      lines.push(
-        booking.date_end
-          ? `Sana: ${booking.date_start} dan ${booking.date_end} gacha`
-          : `Sana: ${booking.date_start}`,
-      );
-      lines.push("");
-    }
-
-    await telegram.sendMessage(chatId, lines.join("\n").trim(), {
+    await telegram.sendMessage(chatId, "📚 Mening bronlarim", {
       reply_markup: buildMainKeyboard(),
     });
+
+    for (const booking of bookings) {
+      await telegram.sendMessage(
+        chatId,
+        [
+          `🆔 Bron ID: ${booking.id}`,
+          `🧺 Tanlov: ${booking.booking_label || booking.resource_summary || "Ko'rsatilmagan"}`,
+          `📌 Holat: ${buildTrackingStatusLabel(booking.tracking_status)}`,
+          booking.date_end
+            ? `📅 Sana: ${booking.date_start} dan ${booking.date_end} gacha`
+            : `📅 Sana: ${booking.date_start}`,
+        ].join("\n"),
+        {
+          reply_markup: isBookingCancellable(booking) ? buildBookingCancelKeyboard(booking.id) : undefined,
+        },
+      );
+    }
+  }
+
+  async function cleanupCatalogMessage(message) {
+    const messageId = Number(message?.message_id ?? 0);
+    const chatId = Number(message?.chat?.id ?? 0);
+
+    if (!messageId || !chatId) {
+      return;
+    }
+
+    try {
+      await telegram.callTelegram("deleteMessage", {
+        chat_id: chatId,
+        message_id: messageId,
+      });
+    } catch (error) {
+      console.error(`Customer catalog cleanup failed: ${formatAxiosError(error)}`);
+    }
+  }
+
+  async function showCatalogCard(chatId, state, intro = "", previousMessage = null) {
+    const options = Array.isArray(state?.data?.options) ? state.data.options : await fetchTripOptions();
+
+    if (options.length === 0) {
+      await sendMainMenu(chatId, "😕 Hozircha ko'rsatish uchun joylar topilmadi.");
+      return;
+    }
+
+    state.step = "catalog";
+    state.data.options = options;
+    state.data.catalogIndex = Math.min(Math.max(Number(state.data.catalogIndex ?? 0), 0), options.length - 1);
+    state.data.selections = normalizeResourceSelections(state.data.selections ?? []);
+
+    const option = options[state.data.catalogIndex];
+    const media = await getLatestServiceMedia(option.resourceType);
+    const caption = [intro, buildCatalogCaption(option, state.data.selections)].filter(Boolean).join("\n\n");
+    const replyMarkup = buildCatalogKeyboard(option, state.data.catalogIndex, options.length, state.data.selections);
+
+    if (media?.url) {
+      await telegram.sendPhoto(chatId, media.url, caption, {
+        reply_markup: replyMarkup,
+      });
+      await cleanupCatalogMessage(previousMessage);
+      return;
+    }
+
+    await telegram.sendMessage(chatId, caption, {
+      reply_markup: replyMarkup,
+    });
+    await cleanupCatalogMessage(previousMessage);
   }
 
   async function promptResourceMenu(chatId, state, intro = "Kerakli resurslarni tanlang.") {
@@ -564,29 +781,23 @@ export function createCustomerBot() {
       return;
     }
 
-    state.step = "resource_menu";
+    state.step = "catalog";
     state.data.options = options;
     state.data.selections = normalizeResourceSelections(state.data.selections ?? []);
-
-    await telegram.sendMessage(
-      chatId,
-      `${intro}\n\nTanlangan: ${summarizeSelections(state.data.selections)}`,
-      {
-        reply_markup: buildResourceMenuKeyboard(options, state.data.selections),
-      },
-    );
+    state.data.catalogIndex = Math.min(Math.max(Number(state.data.catalogIndex ?? 0), 0), Math.max(options.length - 1, 0));
+    await showCatalogCard(chatId, state, `🏡 ${intro}`);
   }
 
   async function promptDateSelection(chatId, state) {
     state.step = "date";
-    await telegram.sendMessage(chatId, "Boshlanish sanasini tanlang:", {
+    await telegram.sendMessage(chatId, "📅 Boshlanish sanasini tanlang:", {
       reply_markup: buildDateKeyboard(hasRoomSelection(state.data.selections) ? 14 : 10),
     });
   }
 
   async function promptName(chatId, state, intro = "") {
     state.step = "name";
-    await telegram.sendMessage(chatId, `${intro ? `${intro}\n\n` : ""}Ismingizni kiriting:`, {
+    await telegram.sendMessage(chatId, `${intro ? `${intro}\n\n` : ""}👤 Ismingizni kiriting:`, {
       reply_markup: {
         remove_keyboard: true,
       },
@@ -595,7 +806,7 @@ export function createCustomerBot() {
 
   async function promptPhone(chatId, state) {
     state.step = "phone";
-    await telegram.sendMessage(chatId, "Telefon raqamingizni yuboring yoki pastdagi tugma bilan ulashing:", {
+    await telegram.sendMessage(chatId, "📞 Telefon raqamingizni yuboring yoki pastdagi tugma bilan ulashing:", {
       reply_markup: buildContactKeyboard(),
     });
   }
@@ -614,7 +825,7 @@ export function createCustomerBot() {
       const suggestions = Array.isArray(quote.suggestions) && quote.suggestions.length > 0
         ? `\n\nTavsiya: ${summarizeSelections(quote.suggestions)}`
         : "";
-      await telegram.sendMessage(chatId, `${quote.message}${suggestions}`, {
+      await telegram.sendMessage(chatId, `⚠️ ${quote.message}${suggestions}`, {
         reply_markup: buildMainKeyboard(),
       });
       await promptResourceMenu(chatId, state, "Sig'im yoki bo'sh joy yetarli emas. Tanlovni qayta ko'ring.");
@@ -648,7 +859,7 @@ export function createCustomerBot() {
     await telegram.sendMessage(
       chatId,
       [
-        "Veb-saytdagi tanlovingiz qabul qilindi.",
+        "✨ Veb-saytdagi tanlovingiz qabul qilindi.",
         buildBookingSummary(state.data, state.data.quote),
         "",
         estimatedPeopleCount > 0
@@ -662,10 +873,21 @@ export function createCustomerBot() {
   }
 
   async function startBookingConversation(chatId) {
-    setChatState(chatId, "guests", {
+    const state = setChatState(chatId, "catalog", {
       selections: [],
+      catalogIndex: 0,
     });
-    await telegram.sendMessage(chatId, "Nechta mehmon bo'ladi? (maksimal 30 kishi)", {
+    await showCatalogCard(chatId, state, "Bronni boshlaymiz. Avval joylarni tanlang.");
+  }
+
+  async function startBookingFromCatalog(chatId, state) {
+    state.step = "guests";
+    await telegram.sendMessage(chatId, [
+      "🧺 Savatdagi joylar bron uchun tayyor.",
+      `Tanlov: ${summarizeSelections(state.data.selections ?? [])}`,
+      "",
+      "👥 Endi nechta mehmon bo'lishini kiriting.",
+    ].join("\n"), {
       reply_markup: buildMainKeyboard(),
     });
   }
@@ -747,6 +969,42 @@ export function createCustomerBot() {
     const data = String(callbackQuery?.data ?? "");
     const state = getChatState(chatId);
 
+    if (callbackQueryId && chatId && data.startsWith(CALLBACKS.bookingCancelConfirm)) {
+      const bookingId = data.slice(CALLBACKS.bookingCancelConfirm.length);
+
+      try {
+        await cancelBookingForTelegramUser(callbackQuery?.from?.id, bookingId);
+        await telegram.editMessageReplyMarkup(chatId, callbackQuery?.message?.message_id, {
+          inline_keyboard: [],
+        });
+        await answerCallbackQuerySafe(callbackQueryId, "Bron bekor qilindi.");
+        await telegram.sendMessage(chatId, `❌ Bron bekor qilindi.\n\nBron ID: ${bookingId}`, {
+          reply_markup: buildMainKeyboard(),
+        });
+      } catch (error) {
+        console.error(`Customer booking cancel failed: ${formatAxiosError(error)}`);
+        await answerCallbackQuerySafe(
+          callbackQueryId,
+          error instanceof Error ? error.message : "Bronni bekor qilib bo'lmadi.",
+        );
+      }
+      return;
+    }
+
+    if (callbackQueryId && chatId && data.startsWith(CALLBACKS.bookingCancelBack)) {
+      const bookingId = data.slice(CALLBACKS.bookingCancelBack.length);
+      await telegram.editMessageReplyMarkup(chatId, callbackQuery?.message?.message_id, buildBookingCancelKeyboard(bookingId));
+      await answerCallbackQuerySafe(callbackQueryId, "Bekor qilindi.");
+      return;
+    }
+
+    if (callbackQueryId && chatId && data.startsWith(CALLBACKS.bookingCancel)) {
+      const bookingId = data.slice(CALLBACKS.bookingCancel.length);
+      await telegram.editMessageReplyMarkup(chatId, callbackQuery?.message?.message_id, buildBookingCancelKeyboard(bookingId, true));
+      await answerCallbackQuerySafe(callbackQueryId, "Bekor qilishni tasdiqlang.");
+      return;
+    }
+
     if (!callbackQueryId || !chatId || !state) {
       if (callbackQueryId) {
         await answerCallbackQuerySafe(callbackQueryId, "Jarayon topilmadi.");
@@ -755,6 +1013,101 @@ export function createCustomerBot() {
     }
 
     try {
+      if (data === "noop") {
+        await answerCallbackQuerySafe(callbackQueryId, "Ko'rib chiqyapsiz 👀");
+        return;
+      }
+
+      if (data.startsWith(CALLBACKS.catalogNav) && state.step === "catalog") {
+        state.data.catalogIndex = Number.parseInt(data.slice(CALLBACKS.catalogNav.length), 10) || 0;
+        await answerCallbackQuerySafe(callbackQueryId, "Boshqa tarif ochildi.");
+        await showCatalogCard(chatId, state, "", callbackQuery.message);
+        return;
+      }
+
+      if (data.startsWith(CALLBACKS.catalogAdd) && state.step === "catalog") {
+        const payload = data.slice(CALLBACKS.catalogAdd.length);
+        const [resourceType, mode] = payload.split(":");
+        const includeTapchan = mode !== "without";
+        const currentSelections = normalizeResourceSelections(state.data.selections ?? []);
+        const nextSelections = normalizeResourceSelections([
+          ...currentSelections.filter(
+            (item) => buildCatalogSelectionKey(item.resourceType, item.includeTapchan) !== buildCatalogSelectionKey(resourceType, includeTapchan),
+          ),
+          {
+            resourceType,
+            includeTapchan,
+            quantity: getSelectionQuantity(currentSelections, resourceType, includeTapchan) + 1,
+          },
+        ]);
+
+        state.data.selections = nextSelections;
+        await answerCallbackQuerySafe(callbackQueryId, "Savatga qo'shildi ✅");
+        await showCatalogCard(chatId, state, "", callbackQuery.message);
+        return;
+      }
+
+      if (data.startsWith(CALLBACKS.catalogRemove) && state.step === "catalog") {
+        const payload = data.slice(CALLBACKS.catalogRemove.length);
+        const [resourceType, mode] = payload.split(":");
+        const includeTapchan = mode !== "without";
+        const currentSelections = normalizeResourceSelections(state.data.selections ?? []);
+        const currentQuantity = getSelectionQuantity(currentSelections, resourceType, includeTapchan);
+        const nextSelections = normalizeResourceSelections([
+          ...currentSelections.filter(
+            (item) => buildCatalogSelectionKey(item.resourceType, item.includeTapchan) !== buildCatalogSelectionKey(resourceType, includeTapchan),
+          ),
+          ...(currentQuantity > 1
+            ? [{ resourceType, includeTapchan, quantity: currentQuantity - 1 }]
+            : []),
+        ]);
+
+        state.data.selections = nextSelections;
+        await answerCallbackQuerySafe(callbackQueryId, currentQuantity > 0 ? "Savat yangilandi." : "Bu tarif savatda yo'q.");
+        await showCatalogCard(chatId, state, "", callbackQuery.message);
+        return;
+      }
+
+      if (data === CALLBACKS.catalogStart && state.step === "catalog") {
+        if ((state.data.selections ?? []).length === 0) {
+          await answerCallbackQuerySafe(callbackQueryId, "Avval savatga kamida bitta tarif qo'shing.");
+          await showCatalogCard(chatId, state, "🧺 Avval savatni to'ldiring.", callbackQuery.message);
+          return;
+        }
+
+        await answerCallbackQuerySafe(callbackQueryId, "Bronlashga o'tamiz.");
+        await startBookingFromCatalog(chatId, state);
+        return;
+      }
+
+      if (data === CALLBACKS.catalogBack && state.step === "catalog") {
+        await answerCallbackQuerySafe(callbackQueryId, "Bosh menyu");
+        await sendMainMenu(chatId, "🏠 Bosh menyuga qaytdik.");
+        await cleanupCatalogMessage(callbackQuery.message);
+        return;
+      }
+
+      if (data === CALLBACKS.proofCancel && state.step === "proof_confirm") {
+        setChatState(chatId, "proof", { booking_id: state.data.booking_id });
+        await answerCallbackQuerySafe(callbackQueryId, "Qayta yuborishingiz mumkin.");
+        await telegram.sendMessage(chatId, "🔁 Yaxshi, chekni qayta yuboring. Foto, PDF yoki link qabul qilinadi.", {
+          reply_markup: buildMainKeyboard(),
+        });
+        return;
+      }
+
+      if (data === CALLBACKS.proofConfirm && state.step === "proof_confirm") {
+        await answerCallbackQuerySafe(callbackQueryId, "Chek yuborilmoqda.");
+        await submitProof(
+          chatId,
+          state.data.sourceMessage ?? callbackQuery,
+          state.data.booking_id,
+          state.data.pendingProofLink ?? "",
+          state.data.pendingProofFile ?? null,
+        );
+        return;
+      }
+
       if (data.startsWith(CALLBACKS.resourcePick) && state.step === "resource_menu") {
         await answerCallbackQuerySafe(callbackQueryId, "Tanlandi.");
         await handleResourcePick(callbackQuery, state, data.slice(CALLBACKS.resourcePick.length));
@@ -1024,14 +1377,14 @@ export function createCustomerBot() {
       return;
     }
 
-    if (isSlashCommand(text, "help")) {
-      await telegram.sendMessage(
-        chatId,
-        "Bron boshlasangiz mehmonlar soni, resurslar va sanani tanlaysiz. Keyin ism va telefon yuborasiz, tizim sizga karta raqami bilan bron ID beradi.",
-        {
-          reply_markup: buildMainKeyboard(),
-        },
-      );
+      if (isSlashCommand(text, "help")) {
+        await telegram.sendMessage(
+          chatId,
+          buildHelpMessage(),
+          {
+            reply_markup: buildMainKeyboard(),
+          },
+        );
       return;
     }
 
@@ -1050,14 +1403,14 @@ export function createCustomerBot() {
       return;
     }
 
-    if (text === BUTTONS.help) {
-      await telegram.sendMessage(
-        chatId,
-        "Bron boshlasangiz mehmonlar soni, resurslar va sanani tanlaysiz. Keyin ism va telefon yuborasiz, tizim sizga karta raqami bilan bron ID beradi.",
-        {
-          reply_markup: buildMainKeyboard(),
-        },
-      );
+      if (text === BUTTONS.help) {
+        await telegram.sendMessage(
+          chatId,
+          buildHelpMessage(),
+          {
+            reply_markup: buildMainKeyboard(),
+          },
+        );
       return;
     }
 
@@ -1071,7 +1424,7 @@ export function createCustomerBot() {
     }
 
     if (!state) {
-      await telegram.sendMessage(chatId, "Kerakli bo'limni tanlang.", {
+      await telegram.sendMessage(chatId, "Kerakli bo'limni tanlang yoki /start yuboring.", {
         reply_markup: buildMainKeyboard(),
       });
       return;
@@ -1098,6 +1451,11 @@ export function createCustomerBot() {
 
       if ((state.data.selections ?? []).length > 0 && state.data.date_start) {
         await promptName(chatId, state, buildBookingSummary(state.data, state.data.quote));
+        return;
+      }
+
+      if ((state.data.selections ?? []).length > 0) {
+        await promptDateSelection(chatId, state);
         return;
       }
 
