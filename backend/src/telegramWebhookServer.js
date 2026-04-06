@@ -59,7 +59,7 @@ export function createTelegramWebhookApp() {
   app.use((req, res, next) => {
     res.setHeader("Access-Control-Allow-Origin", frontendUrl || "*");
     res.setHeader("Access-Control-Allow-Methods", "POST, OPTIONS, GET");
-    res.setHeader("Access-Control-Allow-Headers", "Content-Type, x-webhook-secret");
+    res.setHeader("Access-Control-Allow-Headers", "Content-Type, x-webhook-secret, x-telegram-bot-api-secret-token");
 
     if (req.method === "OPTIONS") {
       res.sendStatus(204);
@@ -85,6 +85,40 @@ export function createTelegramWebhookApp() {
     }
   }
 
+  function hasValidTelegramWebhookSecret(req) {
+    if (!webhookSecret) {
+      return true;
+    }
+
+    const secretHeader = String(req.get("x-telegram-bot-api-secret-token") ?? "").trim();
+    return secretHeader === webhookSecret;
+  }
+
+  function rejectInvalidWebhookSecret(res) {
+    res.status(403).json({
+      ok: false,
+      error: "Invalid Telegram webhook secret",
+    });
+  }
+
+  function hasValidInternalSecret(req) {
+    if (!webhookSecret) {
+      return true;
+    }
+
+    const suppliedSecret = String(req.get("x-webhook-secret") ?? "").trim();
+    const authorization = String(req.get("authorization") ?? "").trim();
+
+    return suppliedSecret === webhookSecret || authorization === `Bearer ${webhookSecret}`;
+  }
+
+  function rejectInvalidInternalSecret(res) {
+    res.status(403).json({
+      ok: false,
+      error: "Missing or invalid internal secret",
+    });
+  }
+
   async function handleQuoteRequest(req, res) {
     try {
       const quote = await quoteBooking(normalizeEnginePayload(req.body));
@@ -108,16 +142,31 @@ export function createTelegramWebhookApp() {
   });
 
   app.post("/webhook/customer", async (req, res) => {
+    if (!hasValidTelegramWebhookSecret(req)) {
+      rejectInvalidWebhookSecret(res);
+      return;
+    }
+
     res.status(200).json({ ok: true });
     await processUpdate(customerBot, "customer", req.body);
   });
 
   app.post("/webhook/manager", async (req, res) => {
+    if (!hasValidTelegramWebhookSecret(req)) {
+      rejectInvalidWebhookSecret(res);
+      return;
+    }
+
     res.status(200).json({ ok: true });
     await processUpdate(managerBot, "manager", req.body);
   });
 
   app.post("/telegram-webhook", async (req, res) => {
+    if (!hasValidTelegramWebhookSecret(req)) {
+      rejectInvalidWebhookSecret(res);
+      return;
+    }
+
     res.status(200).json({ ok: true });
     await processUpdate(customerBot, "customer", req.body);
   });
@@ -197,6 +246,11 @@ export function createTelegramWebhookApp() {
   });
 
   app.post("/api/bookings/:id/approve", async (req, res) => {
+    if (!hasValidInternalSecret(req)) {
+      rejectInvalidInternalSecret(res);
+      return;
+    }
+
     try {
       const bookingId = String(req.params.id ?? "").trim();
       const context = await approveBookingManually(bookingId);
@@ -208,6 +262,11 @@ export function createTelegramWebhookApp() {
   });
 
   app.post("/api/bookings/:id/reject", async (req, res) => {
+    if (!hasValidInternalSecret(req)) {
+      rejectInvalidInternalSecret(res);
+      return;
+    }
+
     try {
       const bookingId = String(req.params.id ?? "").trim();
       const context = await rejectBookingManually(bookingId);

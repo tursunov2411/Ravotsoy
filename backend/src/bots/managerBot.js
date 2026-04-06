@@ -29,11 +29,13 @@ import {
   exportBookingHistoryCsv,
   formatAnalyticsForTelegram,
   formatAvailabilityForTelegram,
+  formatOperationsSnapshotForTelegram,
   formatReportRecipientsForTelegram,
   getBookingCalendarMonth,
   getBusinessAnalytics,
   getDailyReportRecipients,
   getManagerBalanceSnapshot,
+  getOperationsSnapshot,
   getResourceOverview,
   getSitePaymentSettings,
   getSystemStatus,
@@ -50,6 +52,7 @@ import {
   updatePricingRuleValues,
   updateResourceDetails,
 } from "../services/businessOps.js";
+import { listManagerActionLogs, logManagerAction } from "../services/managerAudit.js";
 import { deleteServiceMedia, getLatestServiceMedia, replaceServiceMedia } from "../services/mediaLibrary.js";
 import { createOfflineBooking, getTripBuilderOptions } from "../services/bookingEngine.js";
 import {
@@ -296,12 +299,13 @@ function buildReportKeyboard() {
     inline_keyboard: [
       [
         { text: "🌙 Bugungi hisobot", callback_data: `${ACTIONS.report}send_today` },
-        { text: "⬇️ Bronlar CSV", callback_data: `${ACTIONS.report}download_history` },
+        { text: "📋 Operatsion close", callback_data: `${ACTIONS.report}ops` },
       ],
       [
+        { text: "⬇️ Bronlar CSV", callback_data: `${ACTIONS.report}download_history` },
         { text: "👤 Qabul qiluvchilar", callback_data: `${ACTIONS.report}recipients` },
-        { text: "🔙 Orqaga", callback_data: ACTIONS.backMain },
       ],
+      [{ text: "🔙 Orqaga", callback_data: ACTIONS.backMain }],
     ],
   };
 }
@@ -310,6 +314,7 @@ function buildControlKeyboard() {
   return {
     inline_keyboard: [
       [{ text: "🔁 Nazoratni topshirish", callback_data: `${ACTIONS.control}transfer` }],
+      [{ text: "🧾 Harakatlar jurnali", callback_data: `${ACTIONS.control}audit` }],
       [{ text: "🔄 Yangilash", callback_data: `${ACTIONS.control}menu` }],
       [{ text: "🔙 Orqaga", callback_data: ACTIONS.backMain }],
     ],
@@ -993,9 +998,30 @@ function formatControlSummary(managers) {
       ? managers.map((manager, index) => `${index + 1}. ${manager.name || `@${manager.telegramId}`} - ${manager.role} - ${manager.telegramId}`).join("\n")
       : "Hozircha manager biriktirilmagan.",
     "",
+    "Harakatlar jurnali bo'limi oxirgi muhim manager amallarini ko'rsatadi.",
     "Nazoratni topshirish tugmasi yangi manager uchun bir martalik kod yaratadi.",
     "Yangi manager o'z botida shu kod bilan `/start <kod>` yuboradi.",
   ].join("\n");
+}
+
+function formatAuditLog(logs) {
+  if (!logs.length) {
+    return [
+      "🧾 Harakatlar jurnali",
+      "",
+      "Hozircha audit yozuvlari yo'q.",
+    ].join("\n");
+  }
+
+  return [
+    "🧾 Harakatlar jurnali",
+    "",
+    ...logs.map((item, index) => {
+      const actor = item.actorUsername ? `@${item.actorUsername}` : item.actorName || item.actorTelegramId || "manager";
+      const entity = item.entityId ? ` | ${item.entityId}` : "";
+      return `${index + 1}. ${item.createdAt}\n${item.summary}\nActor: ${actor}${entity}`;
+    }),
+  ].join("\n\n");
 }
 
 export function createManagerBot() {
@@ -1041,6 +1067,25 @@ export function createManagerBot() {
       managerChatId: Number(source?.chat?.id ?? source?.message?.chat?.id ?? 0) || null,
       managerUsername: String(source?.from?.username ?? source?.username ?? "").trim(),
     };
+  }
+
+  async function auditManagerAction(source, payload = {}) {
+    try {
+      const actorName = buildActorName(source?.from ?? source);
+      const actor = getManagerActor(source);
+
+      await logManagerAction({
+        ...payload,
+        actor: {
+          telegramId: actor.managerTelegramId,
+          chatId: actor.managerChatId,
+          username: actor.managerUsername,
+          name: actorName,
+        },
+      });
+    } catch (error) {
+      console.error(`Manager audit failed: ${formatAxiosError(error)}`);
+    }
   }
 
   function buildOwnerExpenseMessage(expense, snapshotAfter) {
@@ -1145,6 +1190,7 @@ export function createManagerBot() {
     const checks = [];
     const backendPublicUrl = readOptionalEnv("BACKEND_PUBLIC_URL", "RENDER_EXTERNAL_URL").replace(/\/+$/, "");
     const customerToken = readOptionalEnv("CUSTOMER_BOT_TOKEN");
+    const webhookSecret = readOptionalEnv("WEBHOOK_SECRET");
 
     checks.push(await runDiagnosticCheck("Backend runtime", async () => `Process awake. Uptime ${Math.round(process.uptime())}s`));
     checks.push(await runDiagnosticCheck("Supabase wake", async () => {
@@ -1210,6 +1256,7 @@ export function createManagerBot() {
           url: `${backendPublicUrl}/webhook/manager`,
           drop_pending_updates: false,
           allowed_updates: ["message", "callback_query"],
+          ...(webhookSecret ? { secret_token: webhookSecret } : {}),
         });
         const infoResult = await telegram.callTelegram("getWebhookInfo", {});
         const info = infoResult?.result ?? infoResult;
@@ -1231,6 +1278,7 @@ export function createManagerBot() {
           url: `${backendPublicUrl}/webhook/customer`,
           drop_pending_updates: false,
           allowed_updates: ["message", "callback_query"],
+          ...(webhookSecret ? { secret_token: webhookSecret } : {}),
         });
         const infoResult = await customerTelegram.callTelegram("getWebhookInfo", {});
         const info = infoResult?.result ?? infoResult;
@@ -1269,6 +1317,15 @@ export function createManagerBot() {
 
   async function wakeExternalServices(chatId) {
     const report = await collectWakeActions();
+    await auditManagerAction({ id: chatId, chat: { id: chatId } }, {
+      actionType: "diagnostics.wake",
+      entityType: "system",
+      summary: "Manager triggered diagnostics wake flow",
+      details: {
+        checkCount: report.checks.length,
+        hasErrors: report.checks.some((item) => item.status === "error"),
+      },
+    });
     await sendManagerMessage(chatId, formatWakeReport(report), {
       reply_markup: buildStatusKeyboard(),
     });
@@ -1313,7 +1370,7 @@ export function createManagerBot() {
       "🗂 Hisobotlar markazi",
       "",
       `Ulangan qabul qiluvchilar: ${recipients.length}`,
-      "Bu yerdan bugungi hisobotni yuborish, to'liq bron tarixini CSV ko'rinishida yuklash va owner qabul qiluvchilarini sozlash mumkin.",
+      "Bu yerdan bugungi hisobotni yuborish, bugun va ertaga uchun operatsion closeoutni ko'rish, bron tarixini CSV ko'rinishida yuklash va owner qabul qiluvchilarini sozlash mumkin.",
     ].join("\n"), {
       reply_markup: buildReportKeyboard(),
     });
@@ -1329,6 +1386,13 @@ export function createManagerBot() {
   async function showControlMenu(chatId) {
     const managers = await listManagerUsers();
     await sendManagerMessage(chatId, formatControlSummary(managers), {
+      reply_markup: buildControlKeyboard(),
+    });
+  }
+
+  async function showAuditLog(chatId) {
+    const logs = await listManagerActionLogs(12);
+    await sendManagerMessage(chatId, formatAuditLog(logs), {
       reply_markup: buildControlKeyboard(),
     });
   }
@@ -1425,6 +1489,13 @@ export function createManagerBot() {
     }
 
     await sendManagerMessage(chatId, `🌙 Bugungi hisobot yuborildi. Qabul qilganlar soni: ${sentCount}.`, {
+      reply_markup: buildReportKeyboard(),
+    });
+  }
+
+  async function showOperationsSnapshot(chatId) {
+    const snapshot = await getOperationsSnapshot();
+    await sendManagerMessage(chatId, formatOperationsSnapshotForTelegram(snapshot), {
       reply_markup: buildReportKeyboard(),
     });
   }
@@ -1753,6 +1824,18 @@ export function createManagerBot() {
         reply_markup: buildMainKeyboard(),
       });
       await notifyCustomerAboutDecision(context, approved);
+      await auditManagerAction(callbackQuery, {
+        actionType: approved ? "booking.approve" : "booking.reject",
+        entityType: "booking",
+        entityId: bookingId,
+        bookingId,
+        summary: approved ? "Manager approved booking" : "Manager rejected booking",
+        details: {
+          status: context?.booking?.status ?? "",
+          paymentStatus: context?.booking?.payment_status ?? "",
+          proofDecision: needsProofDecision,
+        },
+      });
     } catch (error) {
       console.error(`Manager decision failed: ${formatAxiosError(error)}`);
       await answerCallbackQuery(callbackQueryId, error instanceof Error ? error.message : "Qarorni saqlab bo'lmadi.");
@@ -1867,6 +1950,15 @@ export function createManagerBot() {
 
       if (data === `${ACTIONS.control}transfer`) {
         const transfer = await createManagerTransferToken(callbackQuery?.from?.id);
+        await auditManagerAction(callbackQuery, {
+          actionType: "manager.transfer_token.create",
+          entityType: "manager_control",
+          entityId: transfer.token,
+          summary: "Manager created transfer token",
+          details: {
+            expiresAt: transfer.expiresAt,
+          },
+        });
         await answerCallbackQuery(callbackQueryId, "Topshirish kodi yaratildi");
         await sendManagerMessage(chatId, [
           "🔁 Manager nazoratini topshirish",
@@ -1880,6 +1972,12 @@ export function createManagerBot() {
           parse_mode: "Markdown",
           reply_markup: buildControlKeyboard(),
         });
+        return true;
+      }
+
+      if (data === `${ACTIONS.control}audit`) {
+        await answerCallbackQuery(callbackQueryId, "Audit jurnali");
+        await showAuditLog(chatId);
         return true;
       }
 
@@ -1977,6 +2075,16 @@ export function createManagerBot() {
           actor: getManagerActor(callbackQuery),
           note: "Topshirildi",
         });
+        await auditManagerAction(callbackQuery, {
+          actionType: "finance.handover",
+          entityType: "balance",
+          entityId: result.handoff.id,
+          summary: `Manager handed over ${result.handoff.amount} UZS to owner`,
+          details: {
+            amount: result.handoff.amount,
+            balanceAfter: result.snapshotAfter.currentBalance,
+          },
+        });
         await answerCallbackQuery(callbackQueryId, "Balans topshirildi");
         await notifyOwnersAboutFinanceEvent(buildOwnerHandoverMessage(result.handoff, result.snapshotAfter));
         await sendManagerMessage(chatId, `✅ ${formatPrice(result.handoff.amount)} UZS ownerga topshirildi.`, {
@@ -2017,6 +2125,13 @@ export function createManagerBot() {
       if (data.startsWith(ACTIONS.bookingFree)) {
         const bookingId = data.slice(ACTIONS.bookingFree.length);
         await cancelBookingManually(bookingId);
+        await auditManagerAction(callbackQuery, {
+          actionType: "booking.cancel",
+          entityType: "booking",
+          entityId: bookingId,
+          bookingId,
+          summary: "Manager cancelled booking manually",
+        });
         await answerCallbackQuery(callbackQueryId, "Joy bo'shatildi");
         await showBookingDetail(chatId, bookingId);
         return true;
@@ -2025,6 +2140,13 @@ export function createManagerBot() {
       if (data.startsWith(ACTIONS.bookingCheckIn)) {
         const bookingId = data.slice(ACTIONS.bookingCheckIn.length);
         await setBookingCheckedIn(bookingId);
+        await auditManagerAction(callbackQuery, {
+          actionType: "booking.check_in",
+          entityType: "booking",
+          entityId: bookingId,
+          bookingId,
+          summary: "Manager marked booking as checked in",
+        });
         await answerCallbackQuery(callbackQueryId, "Mehmon check-in qilindi");
         await showBookingDetail(chatId, bookingId);
         return true;
@@ -2071,6 +2193,13 @@ export function createManagerBot() {
         }
 
         await setBookingCompleted(bookingId);
+        await auditManagerAction(callbackQuery, {
+          actionType: "booking.complete",
+          entityType: "booking",
+          entityId: bookingId,
+          bookingId,
+          summary: "Manager marked booking as completed",
+        });
         await answerCallbackQuery(callbackQueryId, "Mehmon ketdi");
         await showBookingDetail(chatId, bookingId);
         return true;
@@ -2117,6 +2246,17 @@ export function createManagerBot() {
       if (data === `${ACTIONS.report}send_today`) {
         await answerCallbackQuery(callbackQueryId, "Hisobot yuborilmoqda");
         await sendDailyReport(chatId, true);
+        await auditManagerAction(callbackQuery, {
+          actionType: "report.send_daily",
+          entityType: "report",
+          summary: "Manager sent daily owner report",
+        });
+        return true;
+      }
+
+      if (data === `${ACTIONS.report}ops`) {
+        await answerCallbackQuery(callbackQueryId, "Operatsion close");
+        await showOperationsSnapshot(chatId);
         return true;
       }
 
@@ -2153,7 +2293,14 @@ export function createManagerBot() {
       }
 
       if (data.startsWith(ACTIONS.reportRecipientDelete)) {
-        await removeReportRecipient(data.slice(ACTIONS.reportRecipientDelete.length));
+        const recipientId = data.slice(ACTIONS.reportRecipientDelete.length);
+        await removeReportRecipient(recipientId);
+        await auditManagerAction(callbackQuery, {
+          actionType: "report.recipient.remove",
+          entityType: "report_recipient",
+          entityId: recipientId,
+          summary: "Manager removed report recipient",
+        });
         await answerCallbackQuery(callbackQueryId, "Qabul qiluvchi o'chirildi");
         await showReportRecipientsMenu(chatId);
         return true;
@@ -2444,6 +2591,16 @@ export function createManagerBot() {
             ? Math.min(Math.max(current[config.field] + config.delta, 0), 1)
             : Math.max(current[config.field] + config.delta, 0);
           await updatePricingRuleValues(resourceType, next);
+          await auditManagerAction(callbackQuery, {
+            actionType: "pricing_rule.update",
+            entityType: "pricing_rule",
+            entityId: resourceType,
+            summary: `Manager updated pricing rule: ${resourceType}`,
+            details: {
+              field: config.field,
+              value: next[config.field],
+            },
+          });
           await answerCallbackQuery(callbackQueryId, "Narx yangilandi");
           await showPricingDetail(chatId, resourceType);
           return true;
@@ -2494,6 +2651,16 @@ export function createManagerBot() {
               telegramId: message?.from?.id,
               name: actorName,
               phone: actorPhone,
+            });
+            await auditManagerAction(message, {
+              actionType: "manager.transfer_token.claim",
+              entityType: "manager_control",
+              entityId: startPayload,
+              summary: "New manager claimed manager control",
+              details: {
+                newManagerTelegramId: claimed.newManager.telegramId,
+                previousManagers: claimed.previousManagers.map((item) => item.telegramId),
+              },
             });
 
             await sendManagerMessage(chatId, [
@@ -2582,6 +2749,15 @@ export function createManagerBot() {
               phone: pendingRecipientInput.mode === "phone" ? value : "",
             });
             pendingRecipientInputs.delete(chatId);
+            await auditManagerAction(message, {
+              actionType: "report.recipient.add",
+              entityType: "report_recipient",
+              entityId: recipient.id,
+              summary: "Manager added report recipient",
+              details: {
+                recipient: recipient.telegramHandle || recipient.phone,
+              },
+            });
             await sendManagerMessage(chatId, `✅ Qabul qiluvchi saqlandi: ${recipient.telegramHandle ? `@${recipient.telegramHandle}` : recipient.phone}\n\nOwner botga kirib /start yuborsa, hisobotlar avtomatik ulangan holatga o'tadi.`);
             await showReportRecipientsMenu(chatId);
           } catch (error) {
@@ -2607,6 +2783,12 @@ export function createManagerBot() {
             payload[pendingPaymentInput.field] = value;
             await updateSitePaymentSettings(payload);
             pendingPaymentInputs.delete(chatId);
+            await auditManagerAction(message, {
+              actionType: "payment_settings.update",
+              entityType: "site_settings",
+              entityId: pendingPaymentInput.field,
+              summary: `Manager updated payment setting: ${pendingPaymentInput.field}`,
+            });
             await sendManagerMessage(chatId, "✅ To'lov sozlamalari yangilandi.");
             await showPaymentSettingsMenu(chatId);
           } catch (error) {
@@ -2655,6 +2837,16 @@ export function createManagerBot() {
               });
 
               pendingBalanceInputs.delete(chatId);
+              await auditManagerAction(message, {
+                actionType: "finance.expense.add",
+                entityType: "expense",
+                entityId: result.expense.id,
+                summary: `Manager added expense: ${result.expense.name}`,
+                details: {
+                  amount: result.expense.amount,
+                  balanceAfter: result.snapshotAfter.currentBalance,
+                },
+              });
               await notifyOwnersAboutFinanceEvent(buildOwnerExpenseMessage(result.expense, result.snapshotAfter));
               await sendManagerMessage(chatId, `✅ Xarajat saqlandi: ${result.expense.name} - ${formatPrice(result.expense.amount)} UZS`);
               await showBalanceMenu(chatId);
@@ -2680,6 +2872,14 @@ export function createManagerBot() {
 
               pendingBookingEdits.delete(chatId);
               await updateBookingFieldsManually(pendingBookingEdit.bookingId, { name: text });
+              await auditManagerAction(message, {
+                actionType: "booking.edit_name",
+                entityType: "booking",
+                entityId: pendingBookingEdit.bookingId,
+                bookingId: pendingBookingEdit.bookingId,
+                summary: "Manager updated booking customer name",
+                details: { name: text },
+              });
               await sendManagerMessage(chatId, "✅ Mijoz ismi yangilandi.");
               await showBookingDetail(chatId, pendingBookingEdit.bookingId);
               return;
@@ -2693,6 +2893,14 @@ export function createManagerBot() {
 
               pendingBookingEdits.delete(chatId);
               await updateBookingFieldsManually(pendingBookingEdit.bookingId, { phone: text });
+              await auditManagerAction(message, {
+                actionType: "booking.edit_phone",
+                entityType: "booking",
+                entityId: pendingBookingEdit.bookingId,
+                bookingId: pendingBookingEdit.bookingId,
+                summary: "Manager updated booking phone",
+                details: { phone: text },
+              });
               await sendManagerMessage(chatId, "✅ Telefon raqami yangilandi.");
               await showBookingDetail(chatId, pendingBookingEdit.bookingId);
               return;
@@ -2710,6 +2918,14 @@ export function createManagerBot() {
 
               pendingBookingEdits.delete(chatId);
               await updateBookingPriceManually(pendingBookingEdit.bookingId, numericPrice);
+              await auditManagerAction(message, {
+                actionType: "booking.edit_price",
+                entityType: "booking",
+                entityId: pendingBookingEdit.bookingId,
+                bookingId: pendingBookingEdit.bookingId,
+                summary: "Manager updated booking total price",
+                details: { totalPrice: numericPrice },
+              });
               await sendManagerMessage(chatId, "✅ Bron narxi yangilandi.");
               await showBookingDetail(chatId, pendingBookingEdit.bookingId);
               return;
@@ -2727,6 +2943,14 @@ export function createManagerBot() {
 
               pendingBookingEdits.delete(chatId);
               await completeBookingPaymentManually(pendingBookingEdit.bookingId, numericPrice);
+              await auditManagerAction(message, {
+                actionType: "booking.payment_complete",
+                entityType: "booking",
+                entityId: pendingBookingEdit.bookingId,
+                bookingId: pendingBookingEdit.bookingId,
+                summary: "Manager completed booking payment",
+                details: { totalPrice: numericPrice },
+              });
               await sendManagerMessage(chatId, "✅ To'lov yakunlandi va bron summasi yangilandi.");
               await showBookingDetail(chatId, pendingBookingEdit.bookingId);
               return;
@@ -2744,6 +2968,17 @@ export function createManagerBot() {
 
               pendingBookingEdits.delete(chatId);
               await moveBookingDatesManually(pendingBookingEdit.bookingId, parts[0], parts[1] ?? null);
+              await auditManagerAction(message, {
+                actionType: "booking.move_dates",
+                entityType: "booking",
+                entityId: pendingBookingEdit.bookingId,
+                bookingId: pendingBookingEdit.bookingId,
+                summary: "Manager moved booking dates",
+                details: {
+                  startDate: parts[0],
+                  endDate: parts[1] ?? null,
+                },
+              });
               await sendManagerMessage(chatId, "✅ Bron sanasi ko'chirildi.");
               await showBookingDetail(chatId, pendingBookingEdit.bookingId);
               return;
@@ -2844,6 +3079,20 @@ export function createManagerBot() {
 
               await sendManagerMessage(chatId, `✅ Offlayn bron yaratildi.\n\nID: ${bookingResult.bookingId}\nNarx: ${formatPrice(price)} UZS`, {
                 reply_markup: buildOfflineMenuKeyboard(),
+              });
+              await auditManagerAction(message, {
+                actionType: "booking.offline_create",
+                entityType: "booking",
+                entityId: bookingResult.bookingId,
+                bookingId: bookingResult.bookingId,
+                summary: "Manager created offline booking",
+                details: {
+                  resourceType: pendingOfflineBooking.resourceType,
+                  quantity: pendingOfflineBooking.quantity,
+                  totalPrice: price,
+                  startDate: pendingOfflineBooking.startDate,
+                  endDate: pendingOfflineBooking.endDate ?? null,
+                },
               });
               await showBookingDetail(chatId, bookingResult.bookingId);
               return;

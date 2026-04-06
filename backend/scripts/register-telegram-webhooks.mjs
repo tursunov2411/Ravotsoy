@@ -69,6 +69,7 @@ const backendUrl =
   || readFrontendEnvValue("VITE_BACKEND_URL");
 const customerToken = requireEnv("CUSTOMER_BOT_TOKEN");
 const managerToken = requireEnv("MANAGER_BOT_TOKEN");
+const webhookSecret = readEnv("WEBHOOK_SECRET");
 
 const customerCommands = [
   { command: "start", description: "Asosiy menyu" },
@@ -93,12 +94,14 @@ await telegramCall(customerToken, "setWebhook", {
   url: `${normalizedBackendUrl}/webhook/customer`,
   drop_pending_updates: false,
   allowed_updates: ["message", "callback_query"],
+  ...(webhookSecret ? { secret_token: webhookSecret } : {}),
 });
 
 await telegramCall(managerToken, "setWebhook", {
   url: `${normalizedBackendUrl}/webhook/manager`,
   drop_pending_updates: false,
   allowed_updates: ["message", "callback_query"],
+  ...(webhookSecret ? { secret_token: webhookSecret } : {}),
 });
 
 await telegramCall(customerToken, "setMyCommands", {
@@ -123,10 +126,12 @@ console.log(
       customer: {
         webhook: customerInfo.url,
         pendingUpdates: customerInfo.pending_update_count ?? 0,
+        secretConfigured: Boolean(webhookSecret),
       },
       manager: {
         webhook: managerInfo.url,
         pendingUpdates: managerInfo.pending_update_count ?? 0,
+        secretConfigured: Boolean(webhookSecret),
       },
     },
     null,

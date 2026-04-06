@@ -226,7 +226,7 @@ function normalizeManagerActor(actor = {}) {
 
   return {
     managerTelegramId: Number.isInteger(managerTelegramId) && managerTelegramId > 0 ? managerTelegramId : null,
-    managerChatId: Number.isInteger(managerChatId) && managerChatId > 0 ? managerChatId : null,
+    managerChatId: Number.isInteger(managerChatId) && managerChatId !== 0 ? managerChatId : null,
     managerUsername: String(actor.managerUsername ?? "").trim().replace(/^@+/, ""),
   };
 }
@@ -1026,6 +1026,60 @@ export async function getSystemStatus() {
   };
 }
 
+function summarizeOperationsDay(bookings, dateText) {
+  const normalizedBookings = Array.isArray(bookings) ? bookings : [];
+  const activeBookings = normalizedBookings.filter((item) => !["rejected", "cancelled"].includes(String(item.status ?? "")));
+  const paidBookings = activeBookings.filter((item) => String(item.paymentStatus ?? "") === "paid");
+  const unpaidBookings = activeBookings.filter((item) => String(item.paymentStatus ?? "") !== "paid");
+  const arrivals = activeBookings.filter((item) => String(item.dateStart ?? "") === dateText);
+  const departures = activeBookings.filter((item) => {
+    const startDate = String(item.dateStart ?? "");
+    const endDate = String(item.dateEnd ?? "");
+
+    if (endDate) {
+      return endDate === dateText;
+    }
+
+    return startDate === dateText;
+  });
+
+  return {
+    date: dateText,
+    totalBookings: normalizedBookings.length,
+    activeBookings: activeBookings.length,
+    arrivalsCount: arrivals.length,
+    departuresCount: departures.length,
+    pendingCount: activeBookings.filter((item) => item.trackingStatus === "pending").length,
+    awaitingProofCount: activeBookings.filter((item) => item.trackingStatus === "awaiting confirmation").length,
+    confirmedCount: activeBookings.filter((item) => item.trackingStatus === "confirmed").length,
+    checkedInCount: activeBookings.filter((item) => item.trackingStatus === "checked_in").length,
+    unpaidCount: unpaidBookings.length,
+    paidRevenue: paidBookings.reduce((sum, item) => sum + Number(item.totalPrice ?? 0), 0),
+    topArrivals: arrivals.slice(0, 5),
+    topDepartures: departures.slice(0, 5),
+    unpaidBookings: unpaidBookings.slice(0, 5),
+  };
+}
+
+export async function getOperationsSnapshot() {
+  const today = getTodayTashkent();
+  const tomorrow = addDays(today, 1);
+  const [todayBookings, tomorrowBookings, balance, systemStatus] = await Promise.all([
+    listBookingsForManagerDay(today, { limit: 200 }),
+    listBookingsForManagerDay(tomorrow, { limit: 200 }),
+    getManagerBalanceSnapshot(),
+    getSystemStatus(),
+  ]);
+
+  return {
+    generatedAt: new Date().toISOString(),
+    today: summarizeOperationsDay(todayBookings, today),
+    tomorrow: summarizeOperationsDay(tomorrowBookings, tomorrow),
+    balance,
+    systemStatus,
+  };
+}
+
 export async function exportBookingHistoryCsv() {
   const { data, error } = await supabase
     .from("bookings")
@@ -1225,10 +1279,9 @@ export async function getDailyReportRecipients() {
 }
 
 export async function buildDailyReportMessage() {
-  const [analytics, systemStatus, balance] = await Promise.all([
+  const [analytics, operations] = await Promise.all([
     getBusinessAnalytics("today"),
-    getSystemStatus(),
-    getManagerBalanceSnapshot(),
+    getOperationsSnapshot(),
   ]);
 
   return [
@@ -1236,14 +1289,16 @@ export async function buildDailyReportMessage() {
     "",
     formatAnalyticsForTelegram(analytics),
     "",
-    `Balans: ${formatPrice(balance.currentBalance)} UZS`,
-    `Xarajatlar: ${formatPrice(balance.totalExpenses)} UZS`,
-    `Ownerga topshirilgan: ${formatPrice(balance.totalHandedOver)} UZS`,
-    balance.recentExpenses.length > 0
-      ? `So'nggi xarajatlar: ${balance.recentExpenses.slice(0, 3).map((item) => `${item.name} ${formatPrice(item.amount)}`).join(", ")}`
+    formatOperationsSnapshotForTelegram(operations),
+    "",
+    `Balans: ${formatPrice(operations.balance.currentBalance)} UZS`,
+    `Xarajatlar: ${formatPrice(operations.balance.totalExpenses)} UZS`,
+    `Ownerga topshirilgan: ${formatPrice(operations.balance.totalHandedOver)} UZS`,
+    operations.balance.recentExpenses.length > 0
+      ? `So'nggi xarajatlar: ${operations.balance.recentExpenses.slice(0, 3).map((item) => `${item.name} ${formatPrice(item.amount)}`).join(", ")}`
       : "So'nggi xarajatlar: yo'q",
     "",
-    `Tizim holati: faol ${systemStatus.activeResources}, kutilayotgan ${systemStatus.pendingBookings}, tasdiq kutilmoqda ${systemStatus.awaitingConfirmation}`,
+    `Tizim holati: faol ${operations.systemStatus.activeResources}, kutilayotgan ${operations.systemStatus.pendingBookings}, tasdiq kutilmoqda ${operations.systemStatus.awaitingConfirmation}`,
   ].join("\n");
 }
 
@@ -1282,6 +1337,43 @@ export function formatAnalyticsForTelegram(summary) {
     `🌐 Manbalar: ${Object.entries(summary.bookingSources).map(([key, value]) => `${key} ${value}`).join(", ") || "yo'q"}`,
     summary.issues.length > 0 ? `⚠️ Muammolar: ${summary.issues.join("; ")}` : "⚠️ Muammolar: yo'q",
     summary.insights.length > 0 ? `💡 Tavsiyalar: ${summary.insights.join("; ")}` : "💡 Tavsiyalar: hozircha yo'q",
+  ].join("\n");
+}
+
+function formatOperationsBookingList(items = []) {
+  if (!items.length) {
+    return "yo'q";
+  }
+
+  return items
+    .map((item) => `${item.bookingLabel} | ${item.name || "mijoz"} | ${formatPrice(item.totalPrice)} UZS`)
+    .join("; ");
+}
+
+export function formatOperationsSnapshotForTelegram(snapshot) {
+  return [
+    "Operatsion closeout",
+    "",
+    `Bugun (${snapshot.today.date})`,
+    `Keluvchilar: ${snapshot.today.arrivalsCount}`,
+    `Ketuvchilar: ${snapshot.today.departuresCount}`,
+    `Kutilayotgan: ${snapshot.today.pendingCount}`,
+    `Chek tekshiruvida: ${snapshot.today.awaitingProofCount}`,
+    `Tasdiqlangan: ${snapshot.today.confirmedCount}`,
+    `Ichkarida: ${snapshot.today.checkedInCount}`,
+    `To'lanmagan faol bronlar: ${snapshot.today.unpaidCount}`,
+    `Bugungi yopilgan tushum: ${formatPrice(snapshot.today.paidRevenue)} UZS`,
+    "",
+    `Ertaga (${snapshot.tomorrow.date})`,
+    `Keluvchilar: ${snapshot.tomorrow.arrivalsCount}`,
+    `Ketuvchilar: ${snapshot.tomorrow.departuresCount}`,
+    `Kutilayotgan: ${snapshot.tomorrow.pendingCount}`,
+    `Chek tekshiruvida: ${snapshot.tomorrow.awaitingProofCount}`,
+    `Tasdiqlangan: ${snapshot.tomorrow.confirmedCount}`,
+    `Ichkarida: ${snapshot.tomorrow.checkedInCount}`,
+    "",
+    `Ertangi keluvchilar: ${formatOperationsBookingList(snapshot.tomorrow.topArrivals)}`,
+    `Bugungi to'lanmaganlar: ${formatOperationsBookingList(snapshot.today.unpaidBookings)}`,
   ].join("\n");
 }
 
