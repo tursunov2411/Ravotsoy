@@ -197,12 +197,12 @@ function GalleryModal({
         transition={{ type: "spring", stiffness: 320, damping: 28 }}
         className="fixed inset-0 z-50 flex items-center justify-center px-3 py-4 sm:px-6 sm:py-6"
       >
-        <div className="relative flex h-full w-full max-w-7xl flex-col overflow-hidden rounded-[32px] border border-white/45 bg-white/75 shadow-[0_24px_80px_rgba(15,23,42,0.18)] backdrop-blur-2xl">
-          <div className="flex-1 p-3 sm:p-5">
+        <div className="relative flex h-full w-full max-w-7xl min-h-0 flex-col overflow-hidden rounded-[32px] border border-white/45 bg-white/75 shadow-[0_24px_80px_rgba(15,23,42,0.18)] backdrop-blur-2xl">
+          <div className="min-h-0 flex-1 p-3 sm:p-5">
             <AnimatePresence mode="wait">
               <motion.div
                 key={selectedItem.id}
-                className="relative flex h-full min-h-[420px] items-center justify-center overflow-hidden rounded-[28px] bg-slate-100"
+                className="relative flex h-full min-h-[420px] min-w-0 items-center justify-center overflow-hidden rounded-[28px] bg-[radial-gradient(circle_at_top,#f8fafc_0%,#e2e8f0_100%)]"
                 initial={{ opacity: 0, scale: 0.985 }}
                 animate={{ opacity: 1, scale: 1 }}
                 exit={{ opacity: 0, scale: 0.985 }}
@@ -228,18 +228,29 @@ function GalleryModal({
                   }}
                   animate={{ scale: zoom }}
                   transition={{ type: "spring", stiffness: 280, damping: 28 }}
-                  className="flex h-full w-full items-center justify-center px-4 py-16 sm:px-8 sm:py-20"
+                  className="flex h-full w-full min-h-0 min-w-0 items-center justify-center p-4 sm:p-8"
                   style={{ touchAction: zoom > 1 ? "none" : "pan-y" }}
                 >
-                  <MediaItem
-                    item={selectedItem}
-                    fit="contain"
-                    className="max-h-[68vh] max-w-full select-none sm:max-h-[72vh]"
-                  />
+                  {selectedItem.type === "video" ? (
+                    <video
+                      src={selectedItem.url}
+                      className="block max-h-full max-w-full rounded-[22px] object-contain shadow-[0_24px_80px_rgba(15,23,42,0.18)]"
+                      controls
+                      autoPlay
+                      playsInline
+                    />
+                  ) : (
+                    <img
+                      src={selectedItem.url}
+                      alt={selectedItem.title}
+                      draggable={false}
+                      className="block max-h-full max-w-full select-none rounded-[22px] object-contain shadow-[0_24px_80px_rgba(15,23,42,0.18)]"
+                    />
+                  )}
                 </motion.div>
 
                 {selectedItem.type === "image" ? (
-                  <div className="absolute left-4 top-4 flex items-center gap-2 rounded-full bg-white/82 px-2 py-2 text-slate-700 shadow-lg backdrop-blur">
+                  <div className="absolute left-4 top-4 z-10 flex items-center gap-2 rounded-full bg-white/88 px-2 py-2 text-slate-700 shadow-lg backdrop-blur">
                     <button
                       type="button"
                       onClick={(event) => {
@@ -274,10 +285,10 @@ function GalleryModal({
                   </div>
                 ) : null}
 
-                <div className="pointer-events-none absolute inset-y-0 left-0 right-0 flex items-center justify-between px-3 sm:px-5">
+                <div className="pointer-events-none absolute inset-y-0 left-0 right-0 z-10 flex items-center justify-between px-3 sm:px-5">
                   <motion.button
                     type="button"
-                    className="pointer-events-auto inline-flex h-11 w-11 items-center justify-center rounded-full bg-white/82 text-slate-700 shadow-lg transition hover:bg-white"
+                    className="pointer-events-auto inline-flex h-11 w-11 items-center justify-center rounded-full bg-white/88 text-slate-700 shadow-lg transition hover:bg-white"
                     onClick={(event) => {
                       event.stopPropagation();
                       onPrevious();
@@ -290,7 +301,7 @@ function GalleryModal({
 
                   <motion.button
                     type="button"
-                    className="pointer-events-auto inline-flex h-11 w-11 items-center justify-center rounded-full bg-white/82 text-slate-700 shadow-lg transition hover:bg-white"
+                    className="pointer-events-auto inline-flex h-11 w-11 items-center justify-center rounded-full bg-white/88 text-slate-700 shadow-lg transition hover:bg-white"
                     onClick={(event) => {
                       event.stopPropagation();
                       onNext();
@@ -340,7 +351,7 @@ function GalleryModal({
           </div>
 
           <motion.button
-            className="absolute right-4 top-4 inline-flex h-10 w-10 items-center justify-center rounded-full bg-white/85 text-slate-700 shadow-lg transition hover:bg-white"
+            className="absolute right-4 top-4 z-20 inline-flex h-10 w-10 items-center justify-center rounded-full bg-white/88 text-slate-700 shadow-lg transition hover:bg-white"
             onClick={onClose}
             whileHover={{ scale: 1.06 }}
             whileTap={{ scale: 0.94 }}
