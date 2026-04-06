@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { createSupabasePrivilegedClient } from "../bots/shared.js";
 
 const supabase = createSupabasePrivilegedClient();
@@ -235,6 +236,36 @@ function isMissingFinanceTableError(error) {
   return message.includes("manager_expenses") || message.includes("manager_balance_handoffs") || message.includes("does not exist");
 }
 
+function buildFinancePrefillToken(prefix) {
+  return `finance_${prefix}_${randomUUID()}`;
+}
+
+function normalizeExpensePrefillRecord(record) {
+  const payload = record?.payload ?? {};
+  return {
+    id: String(record?.token ?? payload.id ?? ""),
+    name: String(payload.name ?? "").trim(),
+    amount: Number(payload.amount ?? 0),
+    managerTelegramId: payload.managerTelegramId ? Number(payload.managerTelegramId) : null,
+    managerChatId: payload.managerChatId ? Number(payload.managerChatId) : null,
+    managerUsername: String(payload.managerUsername ?? "").trim(),
+    createdAt: String(record?.created_at ?? payload.createdAt ?? ""),
+  };
+}
+
+function normalizeHandoffPrefillRecord(record) {
+  const payload = record?.payload ?? {};
+  return {
+    id: String(record?.token ?? payload.id ?? ""),
+    amount: Number(payload.amount ?? 0),
+    note: String(payload.note ?? "").trim(),
+    managerTelegramId: payload.managerTelegramId ? Number(payload.managerTelegramId) : null,
+    managerChatId: payload.managerChatId ? Number(payload.managerChatId) : null,
+    managerUsername: String(payload.managerUsername ?? "").trim(),
+    createdAt: String(record?.created_at ?? payload.createdAt ?? ""),
+  };
+}
+
 async function fetchResources() {
   const { data, error } = await supabase
     .from("resources")
@@ -411,7 +442,23 @@ async function fetchManagerExpensesRaw(limit = null) {
     return Array.isArray(data) ? data.map(normalizeExpenseRecord) : [];
   } catch (error) {
     if (isMissingFinanceTableError(error)) {
-      return [];
+      let fallbackQuery = supabase
+        .from("telegram_prefills")
+        .select("token, payload, created_at")
+        .like("token", "finance_expense_%")
+        .order("created_at", { ascending: false });
+
+      if (Number.isInteger(limit) && limit > 0) {
+        fallbackQuery = fallbackQuery.limit(limit);
+      }
+
+      const { data, error: fallbackError } = await fallbackQuery;
+
+      if (fallbackError) {
+        throw fallbackError;
+      }
+
+      return Array.isArray(data) ? data.map(normalizeExpensePrefillRecord) : [];
     }
 
     throw error;
@@ -438,7 +485,23 @@ async function fetchManagerBalanceHandoffsRaw(limit = null) {
     return Array.isArray(data) ? data.map(normalizeHandoffRecord) : [];
   } catch (error) {
     if (isMissingFinanceTableError(error)) {
-      return [];
+      let fallbackQuery = supabase
+        .from("telegram_prefills")
+        .select("token, payload, created_at")
+        .like("token", "finance_handover_%")
+        .order("created_at", { ascending: false });
+
+      if (Number.isInteger(limit) && limit > 0) {
+        fallbackQuery = fallbackQuery.limit(limit);
+      }
+
+      const { data, error: fallbackError } = await fallbackQuery;
+
+      if (fallbackError) {
+        throw fallbackError;
+      }
+
+      return Array.isArray(data) ? data.map(normalizeHandoffPrefillRecord) : [];
     }
 
     throw error;
@@ -763,7 +826,34 @@ export async function addManagerExpense({ name, amount, actor = {} }) {
 
   if (error) {
     if (isMissingFinanceTableError(error)) {
-      throw new Error("Balance moduli uchun yangi migration hali bazaga qo'llanmagan.");
+      const fallbackPayload = {
+        kind: "expense",
+        name: normalizedName,
+        amount: normalizedAmount,
+        managerTelegramId: manager.managerTelegramId,
+        managerChatId: manager.managerChatId,
+        managerUsername: manager.managerUsername || "",
+        createdAt: new Date().toISOString(),
+      };
+      const { data: fallbackData, error: fallbackError } = await supabase
+        .from("telegram_prefills")
+        .insert({
+          token: buildFinancePrefillToken("expense"),
+          payload: fallbackPayload,
+          expires_at: "2099-12-31T23:59:59Z",
+        })
+        .select("token, payload, created_at")
+        .single();
+
+      if (fallbackError) {
+        throw fallbackError;
+      }
+
+      return {
+        expense: normalizeExpensePrefillRecord(fallbackData),
+        snapshotBefore,
+        snapshotAfter: await getManagerBalanceSnapshot(),
+      };
     }
 
     throw error;
@@ -798,7 +888,34 @@ export async function handOverBalanceToOwner({ actor = {}, note = "Topshirildi" 
 
   if (error) {
     if (isMissingFinanceTableError(error)) {
-      throw new Error("Balance moduli uchun yangi migration hali bazaga qo'llanmagan.");
+      const fallbackPayload = {
+        kind: "handover",
+        amount: snapshotBefore.currentBalance,
+        note: String(note ?? "").trim() || "Topshirildi",
+        managerTelegramId: manager.managerTelegramId,
+        managerChatId: manager.managerChatId,
+        managerUsername: manager.managerUsername || "",
+        createdAt: new Date().toISOString(),
+      };
+      const { data: fallbackData, error: fallbackError } = await supabase
+        .from("telegram_prefills")
+        .insert({
+          token: buildFinancePrefillToken("handover"),
+          payload: fallbackPayload,
+          expires_at: "2099-12-31T23:59:59Z",
+        })
+        .select("token, payload, created_at")
+        .single();
+
+      if (fallbackError) {
+        throw fallbackError;
+      }
+
+      return {
+        handoff: normalizeHandoffPrefillRecord(fallbackData),
+        snapshotBefore,
+        snapshotAfter: await getManagerBalanceSnapshot(),
+      };
     }
 
     throw error;
