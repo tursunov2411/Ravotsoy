@@ -214,6 +214,7 @@ function buildStatusKeyboard() {
         { text: "🔄 Yangilash", callback_data: `${ACTIONS.diagnostics}status` },
         { text: BUTTONS.diagnostics, callback_data: `${ACTIONS.diagnostics}run` },
       ],
+      [{ text: "⚡ Uyg'otish / ulash", callback_data: `${ACTIONS.diagnostics}wake` }],
       [{ text: "🔙 Ortga", callback_data: ACTIONS.backMain }],
     ],
   };
@@ -784,6 +785,25 @@ function formatDiagnosticsReport(report) {
   ].filter(Boolean).join("\n");
 }
 
+function formatWakeReport(report) {
+  const iconByStatus = {
+    ok: "OK",
+    warning: "WARN",
+    error: "ERR",
+  };
+
+  return [
+    "⚡ Uyg'otish va ulash",
+    "",
+    `Tekshirildi: ${report.ranAt}`,
+    `Umumiy vaqt: ${formatDuration(report.totalMs)}`,
+    report.hasSlowChecks ? "Ba'zi xizmatlar cold start sabab sekin uyg'ondi." : "",
+    "",
+    ...report.checks.map((check) =>
+      `${iconByStatus[check.status] || "-"} ${check.label}: ${check.detail} (${formatDuration(check.durationMs)})`),
+  ].filter(Boolean).join("\n");
+}
+
 function formatBookingDetail(booking) {
   return [
     "🧾 Bron tafsilotlari",
@@ -1077,6 +1097,119 @@ export function createManagerBot() {
     };
   }
 
+  async function collectWakeActions() {
+    const startedAt = Date.now();
+    const checks = [];
+    const backendPublicUrl = readOptionalEnv("BACKEND_PUBLIC_URL", "RENDER_EXTERNAL_URL").replace(/\/+$/, "");
+    const customerToken = readOptionalEnv("CUSTOMER_BOT_TOKEN");
+
+    checks.push(await runDiagnosticCheck("Backend runtime", async () => `Process awake. Uptime ${Math.round(process.uptime())}s`));
+    checks.push(await runDiagnosticCheck("Supabase wake", async () => {
+      const status = await getSystemStatus();
+      return `Supabase responded. Pending ${status.pendingBookings}`;
+    }));
+
+    if (backendPublicUrl) {
+      checks.push(await runDiagnosticCheck("Public health route", async () => {
+        const response = await fetch(`${backendPublicUrl}/`, {
+          method: "GET",
+          headers: { Accept: "application/json" },
+        });
+
+        if (!response.ok) {
+          throw new Error(`HTTP ${response.status}`);
+        }
+
+        const body = await response.json();
+        return body?.ok ? `Backend reachable at ${backendPublicUrl}` : "Backend responded";
+      }));
+
+      checks.push(await runDiagnosticCheck("Trip builder route", async () => {
+        const response = await fetch(`${backendPublicUrl}/api/trip-builder/options`, {
+          method: "GET",
+          headers: { Accept: "application/json" },
+        });
+
+        if (!response.ok) {
+          throw new Error(`HTTP ${response.status}`);
+        }
+
+        const body = await response.json();
+        const count = Array.isArray(body?.options) ? body.options.length : 0;
+        return `${count} options warmed`;
+      }));
+
+      checks.push(await runDiagnosticCheck("Payment config route", async () => {
+        const response = await fetch(`${backendPublicUrl}/api/payment-config`, {
+          method: "GET",
+          headers: { Accept: "application/json" },
+        });
+
+        if (!response.ok) {
+          throw new Error(`HTTP ${response.status}`);
+        }
+
+        const body = await response.json();
+        return body?.ok ? "Payment config reachable" : "Payment route responded";
+      }));
+    } else {
+      checks.push({
+        label: "Public routes",
+        status: "warning",
+        detail: "BACKEND_PUBLIC_URL yoki RENDER_EXTERNAL_URL topilmadi",
+        durationMs: 0,
+      });
+    }
+
+    if (telegram && backendPublicUrl) {
+      checks.push(await runDiagnosticCheck("Manager webhook", async () => {
+        await telegram.callTelegram("setWebhook", {
+          url: `${backendPublicUrl}/webhook/manager`,
+          drop_pending_updates: false,
+          allowed_updates: ["message", "callback_query"],
+        });
+        const infoResult = await telegram.callTelegram("getWebhookInfo", {});
+        const info = infoResult?.result ?? infoResult;
+        return info?.url ? `Registered ${info.url}` : "Manager webhook refreshed";
+      }));
+    } else if (!telegram) {
+      checks.push({
+        label: "Manager webhook",
+        status: "warning",
+        detail: "MANAGER_BOT_TOKEN is not configured",
+        durationMs: 0,
+      });
+    }
+
+    if (customerToken && backendPublicUrl) {
+      checks.push(await runDiagnosticCheck("Customer webhook", async () => {
+        const customerTelegram = createTelegramClient(customerToken);
+        await customerTelegram.callTelegram("setWebhook", {
+          url: `${backendPublicUrl}/webhook/customer`,
+          drop_pending_updates: false,
+          allowed_updates: ["message", "callback_query"],
+        });
+        const infoResult = await customerTelegram.callTelegram("getWebhookInfo", {});
+        const info = infoResult?.result ?? infoResult;
+        return info?.url ? `Registered ${info.url}` : "Customer webhook refreshed";
+      }));
+    } else if (!customerToken) {
+      checks.push({
+        label: "Customer webhook",
+        status: "warning",
+        detail: "CUSTOMER_BOT_TOKEN is not configured",
+        durationMs: 0,
+      });
+    }
+
+    return {
+      ranAt: formatDiagnosticTime(),
+      totalMs: Date.now() - startedAt,
+      hasSlowChecks: checks.some((check) => check.status === "warning"),
+      checks,
+    };
+  }
+
   async function showStatusMenu(chatId) {
     const status = await getSystemStatus();
     await sendManagerMessage(chatId, formatSystemStatus(status), {
@@ -1087,6 +1220,13 @@ export function createManagerBot() {
   async function showDiagnostics(chatId) {
     const report = await collectDiagnostics();
     await sendManagerMessage(chatId, formatDiagnosticsReport(report), {
+      reply_markup: buildStatusKeyboard(),
+    });
+  }
+
+  async function wakeExternalServices(chatId) {
+    const report = await collectWakeActions();
+    await sendManagerMessage(chatId, formatWakeReport(report), {
       reply_markup: buildStatusKeyboard(),
     });
   }
@@ -1655,6 +1795,12 @@ export function createManagerBot() {
       if (data === `${ACTIONS.diagnostics}run`) {
         await answerCallbackQuery(callbackQueryId, "Diagnostika ishga tushdi");
         await showDiagnostics(chatId);
+        return true;
+      }
+
+      if (data === `${ACTIONS.diagnostics}wake`) {
+        await answerCallbackQuery(callbackQueryId, "Ulanishlar yangilanmoqda");
+        await wakeExternalServices(chatId);
         return true;
       }
 
