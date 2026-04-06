@@ -1,6 +1,7 @@
 import { AnimatePresence, motion } from "framer-motion";
 import { ChevronLeft, ChevronRight, Grip, RotateCcw, X, ZoomIn, ZoomOut } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { cn } from "../../lib/utils";
 
 export interface BentoGalleryItem {
@@ -171,16 +172,38 @@ function GalleryModal({
   onNext,
 }: GalleryModalProps) {
   const [zoom, setZoom] = useState(1);
+  const [isMounted, setIsMounted] = useState(false);
+
+  useEffect(() => {
+    setIsMounted(true);
+
+    return () => {
+      setIsMounted(false);
+    };
+  }, []);
 
   useEffect(() => {
     setZoom(1);
   }, [selectedItem.id]);
 
-  if (!isOpen) {
+  useEffect(() => {
+    if (!isOpen || !isMounted) {
+      return;
+    }
+
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+
+    return () => {
+      document.body.style.overflow = previousOverflow;
+    };
+  }, [isMounted, isOpen]);
+
+  if (!isOpen || !isMounted) {
     return null;
   }
 
-  return (
+  return createPortal(
     <>
       <motion.div
         className="fixed inset-0 z-40 bg-[rgba(12,20,33,0.38)] backdrop-blur-xl"
@@ -360,7 +383,8 @@ function GalleryModal({
           </motion.button>
         </div>
       </motion.div>
-    </>
+    </>,
+    document.body,
   );
 }
 
